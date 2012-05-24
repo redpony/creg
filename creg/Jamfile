@@ -1,0 +1,15 @@
+import lex ;
+
+lib cregutils :
+ fdict.cc
+ dict.cc
+ gzstream.cc
+ filelib.cc
+ :
+ <include>.
+ ;
+
+exe creg : creg.cc json_feature_map_lexer.ll cregutils ../liblbfgs//liblbfgs ..//boost_program_options : <include>.. <include>. <library>..//z ;
+
+alias programs : creg ;
+
