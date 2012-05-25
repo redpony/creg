@@ -31,6 +31,7 @@ void InitCommandLine(int argc, char** argv, po::variables_map* conf) {
         ("test_responses,s", po::value<string>(), "File containing training response features (ARKRegression format)")
         ("weights,w", po::value<string>(), "Initial weights")
         ("epsilon,e", po::value<double>()->default_value(1e-4), "Epsilon for convergence test. Terminates when ||g|| < epsilon * max(1, ||w||)")
+        ("delta,d", po::value<double>()->default_value(0), "Delta for convergence test. Terminates when (f' - f) / f < delta")
         ("memory_buffers,m",po::value<unsigned>()->default_value(40), "Number of memory buffers for LBFGS")
         ("help,h", "Help");
   po::options_description dcmdline_options;
@@ -349,9 +350,10 @@ double LearnParameters(LossFunction& loss,
                        const double l1,
                        const unsigned l1_start,
                        const unsigned memory_buffers,
-                       const double eps,
+                       const double epsilon,
+                       const double delta,
                        vector<double>* px) {
-  LBFGS<LossFunction> lbfgs(px, loss, memory_buffers, l1, l1_start, eps);
+  LBFGS<LossFunction> lbfgs(px, loss, memory_buffers, l1, l1_start, epsilon, delta);
   lbfgs.MinimizeFunction();
   return 0;
 }
@@ -364,6 +366,7 @@ int main(int argc, char** argv) {
   double l2 = conf["l2"].as<double>();
   const unsigned memory_buffers = conf["memory_buffers"].as<unsigned>();
   const double epsilon = conf["epsilon"].as<double>();
+  const double delta = conf["delta"].as<double>();
   if (l1 < 0.0) {
     cerr << "L1 strength must be >= 0\n";
     return 1;
@@ -407,7 +410,7 @@ int main(int argc, char** argv) {
     vector<double> weights(1 + FD::NumFeats(), 0.0);
     cerr << "       Number of parameters: " << weights.size() << endl;
     UnivariateSquaredLoss loss(training, p, l2);
-    LearnParameters(loss, l1, 1, memory_buffers, epsilon, &weights);
+    LearnParameters(loss, l1, 1, memory_buffers, epsilon, delta, &weights);
 
     if (test.size())
       cerr << "Held-out root MSE: " << loss.Evaluate(test, weights) << endl;
@@ -424,7 +427,7 @@ int main(int argc, char** argv) {
     const unsigned km1 = K - 1;
     vector<double> weights(p + K, 0.0);
     OrdinalLogLoss loss(training, K, p, l2);
-    LearnParameters(loss, l1, km1, memory_buffers, epsilon, &weights);
+    LearnParameters(loss, l1, km1, memory_buffers, epsilon, delta, &weights);
 
     if (test.size())
       cerr << "Held-out accuracy: " << loss.Evaluate(test, weights) << endl;
@@ -446,7 +449,7 @@ int main(int argc, char** argv) {
     const unsigned K = labels.size();
     const unsigned km1 = K - 1;
     MulticlassLogLoss loss(training, K, p, l2);
-    LearnParameters(loss, l1, km1, memory_buffers, epsilon, &weights);
+    LearnParameters(loss, l1, km1, memory_buffers, epsilon, delta, &weights);
 
     if (test.size())
       cerr << "Held-out accuracy: " << loss.Evaluate(test, weights) << endl;

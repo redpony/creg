@@ -21,13 +21,14 @@ class LBFGS {
         size_t m = 10,         // number of memory buffers
         double l1_c = 0.0,     // l1 penalty strength
         unsigned l1_start = 0, // l1 penalty starting index
-        double eps = 1e-5      // convergence epsilon
+        double epsilon = 1e-5, // convergence epsilon
+        double delta = 0.0     // convergence delta
                                // TODO should use custom allocator here:
         ) : p_x(new std::vector<lbfgsfloatval_t>(n, 0.0)),
                              owned(true),
                              m_x(*p_x),
                              func(f) {
-    Init(m, l1_c, l1_start, eps);
+    Init(m, l1_c, l1_start, epsilon, delta);
   }
 
   // constructor where external vector storage for variables is used
@@ -36,13 +37,14 @@ class LBFGS {
         size_t m = 10,         // number of memory buffers
         double l1_c = 0.0,     // l1 penalty strength
         unsigned l1_start = 0, // l1 penalty starting index
-        double eps = 1e-5      // convergence epsilon
+        double epsilon = 1e-5, // convergence epsilon
+        double delta = 0.0     // convergence delta
                                // TODO should use custom allocator here:
         ) : p_x(px),
                              owned(false),
                              m_x(*p_x),
                              func(f) {
-    Init(m, l1_c, l1_start, eps);
+    Init(m, l1_c, l1_start, epsilon, delta);
   }
 
   ~LBFGS() {
@@ -65,10 +67,14 @@ class LBFGS {
   }
 
  private:
-  void Init(size_t m, double l1_c, unsigned l1_start, double eps) {
+  void Init(size_t m, double l1_c, unsigned l1_start, double epsilon, double delta) {
     lbfgs_parameter_init(&param);
     param.m = m;
-    param.epsilon = eps;
+    param.epsilon = epsilon;
+    if(delta > 0.0) {
+        param.delta = delta;
+        param.past = 1;
+    }
     if (l1_c > 0.0) {
       param.linesearch = LBFGS_LINESEARCH_BACKTRACKING;
       param.orthantwise_c = l1_c;
