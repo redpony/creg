@@ -113,7 +113,11 @@ UNESCAPED_CH [^\"\\\b\n\r\f\t]
                                            BEGIN(INITIAL);
                                          }
 
-<PREVAL,POSTVAL,DOUBLE,JSONVAL,INITIAL>. { std::cerr << "bad input: " << yytext << std::endl; abort(); }
+<DOUBLE>.                                { std::cerr << "bad input symbol where float value expected: " << yytext << std::endl;
+                                           abort();
+                                         }
+
+<PREVAL,POSTVAL,JSONVAL,INITIAL>.        { std::cerr << "bad input: " << yytext << std::endl; abort(); }
 
 %%
 
