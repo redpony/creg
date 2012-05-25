@@ -1,2 +1,5 @@
+before_script:
+ - apt-get install libboost-program-options-dev
+ - apt-get install flex
 script: ./bjam
 
