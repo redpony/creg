@@ -10,6 +10,7 @@ You wil need:
 * The [boost libraries](http://www.boost.org) installed somewhere
 
 Instructions:
+
 1. Type `./bjam`
 
 Examples
