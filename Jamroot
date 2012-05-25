@@ -22,9 +22,8 @@ if [ test_header boost/serialization/map.hpp ] && [ test_library boost_serializa
   requirements += <define>HAVE_BOOST_ARCHIVE_TEXT_OARCHIVE_HPP ;
 }
 
-# project : requirements $(requirements) ;
 project : requirements $(requirements) <toolset>darwin:<link>static ;
-project : default-build <threading>single <warnings>on <variant>release ;
+project : default-build <warnings>on <variant>release ;
 
 install-bin-libs creg//programs liblbfgs//liblbfgs ;
 

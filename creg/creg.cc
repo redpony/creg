@@ -318,9 +318,9 @@ struct OrdinalLogLoss : public BaseLoss {
     const unsigned km1 = K - 1;
     for (unsigned i = 0; i < training.size(); ++i) {
       const SparseVector<float>& fmapx = training[i].x;
-      const unsigned refy = training[i].y.label;
+      //const unsigned refy = training[i].y.label;
       ComputeDotProducts(fmapx, x, &dotprods, 1);
-      const double z = dotprods[0];
+      //const double z = dotprods[0];
       for (unsigned j = 0; j < km1; ++j) {
 
       }
