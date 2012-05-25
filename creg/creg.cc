@@ -26,7 +26,7 @@ void InitCommandLine(int argc, char** argv, po::variables_map* conf) {
         ("linear,n", "Linear (rather than logistic) regression")
         ("ordinal,o", "Ordinal regression (proportional odds)")
         ("l1",po::value<double>()->default_value(0.0), "l_1 regularization strength")
-        ("l2",po::value<double>()->default_value(0.0), "l_2 regularization strength")
+        ("l2",po::value<double>()->default_value(1e-10), "l_2 regularization strength")
         ("test_features,t", po::value<string>(), "File containing training instance features (ARKRegression format)")
         ("test_responses,s", po::value<string>(), "File containing training response features (ARKRegression format)")
         ("weights,w", po::value<string>(), "Initial weights")
