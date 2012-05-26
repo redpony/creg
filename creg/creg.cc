@@ -287,7 +287,8 @@ struct MulticlassLogLoss : public BaseLoss {
   }
 
   double Evaluate(const vector<TrainingInstance>& test,
-                  const vector<double>& w) const {
+                  const vector<double>& w,
+                  const vector<string>& labels) const {
     vector<double> dotprods(K - 1);  // K-1 degrees of freedom
     double correct = 0;
     for (unsigned i = 0; i < test.size(); ++i) {
@@ -298,6 +299,7 @@ struct MulticlassLogLoss : public BaseLoss {
       unsigned besty = dotprods.size();
       for (unsigned y = 0; y < dotprods.size(); ++y)
         if (dotprods[y] > best) { best = dotprods[y]; besty = y; }
+      cerr << "line=" << (i+1) << " true=" << labels[refy] << " pred=" << labels[besty] << endl;
       if (refy == besty) { ++correct; }
     }
     return correct / test.size();
@@ -452,7 +454,7 @@ int main(int argc, char** argv) {
     LearnParameters(loss, l1, km1, memory_buffers, epsilon, delta, &weights);
 
     if (test.size())
-      cerr << "Held-out accuracy: " << loss.Evaluate(test, weights) << endl;
+      cerr << "Held-out accuracy: " << loss.Evaluate(test, weights, labels) << endl;
 
     cout << p << "\t***CATEGORICAL***";
     for (unsigned y = 0; y < K; ++y)
