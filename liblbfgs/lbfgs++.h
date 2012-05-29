@@ -157,6 +157,8 @@ class LBFGS {
     switch(lbfgs_ret) {
       case LBFGS_SUCCESS:
         return "L-BFGS reaches convergence."; break;
+      case LBFGS_STOP:
+        return "L-BFGS stops."; break;
       case LBFGS_ALREADY_MINIMIZED:
         return "The initial variables already minimize the objective function."; break;
       case LBFGSERR_UNKNOWNERROR:
