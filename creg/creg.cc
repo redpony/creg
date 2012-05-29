@@ -125,8 +125,8 @@ void ReadLabeledInstances(const string& ffeats,
           xy_pairs->back().y.label = label;
           if (label >= labels->size()) {
             labels->resize(label + 1);
-            (*labels)[label] = line.substr(p);
           }
+          (*labels)[label] = line.substr(p);
         }
         break;
     }
@@ -264,7 +264,6 @@ struct MulticlassLogLoss : public BaseLoss {
     for (unsigned i = 0; i < training.size(); ++i) {
       const SparseVector<float>& fmapx = training[i].x;
       const unsigned refy = training[i].y.label;
-      //cerr << "FMAP: " << fmapx << endl;
       ComputeDotProducts(fmapx, x, &dotprods);
       prob_t z;
       for (unsigned j = 0; j < dotprods.size(); ++j)
@@ -315,36 +314,85 @@ struct OrdinalLogLoss : public BaseLoss {
 
   // evaluate log loss and gradient
   double operator()(const vector<double>& x, double* g) const {
-    fill(g, g + x.size(), 0.0);
-    vector<double> dotprods(1);
     const unsigned km1 = K - 1;
+    double cll = 0;
+    fill(g, g + x.size(), 0.0);
+    vector<double> u(K);
+    u[0] = u[km1] = 0;
+    for (unsigned k = 1; k < km1; k++)
+      u[k] = 1 / (1 - exp(x[k] - x[k - 1]));
     for (unsigned i = 0; i < training.size(); ++i) {
       const SparseVector<float>& fmapx = training[i].x;
-      //const unsigned refy = training[i].y.label;
-      ComputeDotProducts(fmapx, x, &dotprods, 1);
-      //const double z = dotprods[0];
-      for (unsigned j = 0; j < km1; ++j) {
-
-      }
+      const unsigned level = training[i].y.label;
+      const double dotprod = DotProduct(fmapx, x);
+      const double pj = LevelProb(dotprod, x, level);
+      const double pjp1 = LevelProb(dotprod, x, level + 1);
+      cll -= LogDeltaProb(dotprod, x, level);
+      if (level > 0)
+        g[level - 1] -= u[level] - 1 + pj;
+      if (level < km1)
+        g[level] -= - u[level] + pjp1;
+      double scale = (1 - pj - pjp1);
+      for (SparseVector<float>::const_iterator it = fmapx.begin();
+          it != fmapx.end(); ++it)
+        g[km1 + it->first] -= it->second * scale;
     }
-    return 0;
+    double reg = ApplyRegularizationTerms(x, g);
+    return cll + reg;
   }
+
   double Evaluate(const vector<TrainingInstance>& test,
                   const vector<double>& w) const {
-    vector<double> dotprods(1);
+    double correct = 0;
     for (unsigned i = 0; i < test.size(); ++i) {
       const SparseVector<float>& fmapx = test[i].x;
-      const unsigned refy = test[i].y.label;
-      ComputeDotProducts(fmapx, w, &dotprods, 1);
-      const double z = dotprods[0];
+      const unsigned level = test[i].y.label;
+      const double dotprod = DotProduct(fmapx, w);
       unsigned y = 0;
-      for (unsigned k = 1; k <= K; ++k) {
-        if (z > w[k - 1]) y = k;
-      }
-      cerr << "line=" << (i+1) << " true=" << refy << " pred=" << y << endl;
+      for (unsigned k = 0; k < K; k++)
+        if (dotprod > w[k]) y = k;
+      if (level == y) correct++;
+      double p = LevelProb(dotprod, w, level) - LevelProb(dotprod, w, level+1);
+      cerr << "line=" << (i+1) << " true=" << level << " pred=" << y
+        << " prob=" << p << endl;
     }
-    return 0;
+    return correct / test.size();
   }
+
+  double DotProduct(const SparseVector<float>& fx,
+                    const vector<double>& w) const {
+    unsigned km1 = K - 1;
+    double dotproduct = 0;
+    for (SparseVector<float>::const_iterator it = fx.begin(); it != fx.end(); ++it)
+      dotproduct += w[it->first + km1] * it->second;
+    return dotproduct;
+  }
+
+  double LevelProb(double dotprod, const vector<double>& w,
+                   unsigned level) const { // p(y >= level+1)
+    if (level == K) return 0; // p(y > K) = 0
+    if (level == 0) return 1; // p(y >= 1) = 1
+    return 1 / (1 + exp(w[level - 1] - dotprod));
+  }
+
+  double LogDeltaProb(double dotprod, const vector<double>& w,
+                      unsigned level) const { // log p(y == level + 1)
+                        double v;
+        if (level == K-1) {
+          prob_t zj = prob_t(dotprod, init_lnx()) + prob_t(w[K-2], init_lnx());
+          return dotprod - log(zj);
+        }
+        if (level == 0) {
+          prob_t zjp1 = prob_t(dotprod, init_lnx()) + prob_t(w[0], init_lnx());
+          return w[0] - log(zjp1);
+        }
+        if (w[level] <= w[level - 1]) return -1e3;
+        prob_t zj = prob_t(dotprod, init_lnx()) + prob_t(w[level - 1], init_lnx());
+        prob_t zjp1 = prob_t(dotprod, init_lnx()) + prob_t(w[level], init_lnx());
+        prob_t dalpha = prob_t(w[level], init_lnx()) - prob_t(w[level - 1], init_lnx());
+        return (dotprod + log(dalpha) - log(zj) - log(zjp1));
+      }
+
 };
 
 template <class LossFunction>
@@ -380,7 +428,10 @@ int main(int argc, char** argv) {
 
   RegressionType resptype = kLOGISTIC;
   if (conf.count("linear")) {
-    if (conf.count("ordinal")) { cerr << "--ordinal and --linear are mutually exclusive\n"; return 1; }
+    if (conf.count("ordinal")) {
+      cerr << "--ordinal and --linear are mutually exclusive\n";
+      return 1;
+    }
     resptype = kLINEAR;
   } else if (conf.count("ordinal")) {
     resptype = kORDINAL;
@@ -409,7 +460,7 @@ int main(int argc, char** argv) {
   cout.precision(15);
 
   if (conf.count("linear")) {  // linear regression
-    vector<double> weights(1 + FD::NumFeats(), 0.0);
+    vector<double> weights(1 + p, 0.0);
     cerr << "       Number of parameters: " << weights.size() << endl;
     UnivariateSquaredLoss loss(training, p, l2);
     LearnParameters(loss, l1, 1, memory_buffers, epsilon, delta, &weights);
@@ -427,7 +478,9 @@ int main(int argc, char** argv) {
   } else if (conf.count("ordinal")) {
     const unsigned K = labels.size();
     const unsigned km1 = K - 1;
-    vector<double> weights(p + K, 0.0);
+    vector<double> weights(p + km1, 0.0);
+    for (unsigned k = 0; k < km1; k++)
+      weights[k] = log(k+1) - log(K);
     OrdinalLogLoss loss(training, K, p, l2);
     LearnParameters(loss, l1, km1, memory_buffers, epsilon, delta, &weights);
 
@@ -439,7 +492,7 @@ int main(int argc, char** argv) {
       cout << '\t' << labels[y];
     cout << endl;
     for (unsigned y = 0; y < km1; ++y)
-      cout << labels[y] << "\t***CUT***\t" << weights[y] << endl;
+      cout << labels[y+1] << "\t***INTERCEPT***\t" << weights[y] << endl;
     for (unsigned f = 0; f < p; ++f) {
       const double w = weights[km1 + f];
       if (w) cout << FD::Convert(f) << "\t" << w << endl;
