@@ -30,7 +30,8 @@ Linear regression example (training and testing):
 	$ ./dist/bin/creg -n -x test_data/auto-mpg.trainfeat -y test_data/auto-mpg.trainresp --l2 1000 \
 	     -t test_data/auto-mpg.testfeat -s test_data/auto-mpg.testresp > weights.txt
 
-Ordinal regression example
+Ordinal regression example (training and testing)
 
-	$ ./creg -o -x test_data/shuttle.trainfeat -y test_data/shuttle.trainresp
+	$ ./dist/bin/creg -o -x test_data/shuttle.trainfeat -y test_data/shuttle.trainresp \
+    -t test_data/shuttle.testfeat -s test_data/shuttle.testresp > weights.txt
 
