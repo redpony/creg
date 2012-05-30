@@ -121,6 +121,7 @@ void ReadLabeledInstances(const string& ffeats,
         break;
       case kORDINAL:
         {
+          // TODO: allow labels not to be consecutive and start from 0 (requires re-indexing)
           const unsigned label = strtol(&line[p], 0, 10);
           xy_pairs->back().y.label = label;
           if (label >= labels->size()) {
@@ -348,13 +349,14 @@ struct OrdinalLogLoss : public BaseLoss {
       const SparseVector<float>& fmapx = test[i].x;
       const unsigned level = test[i].y.label;
       const double dotprod = DotProduct(fmapx, w);
-      unsigned y = 0;
+      unsigned y = K-1;
       for (unsigned k = 0; k < K; k++)
-        if (dotprod > w[k]) y = k;
+        if (dotprod < w[k]) { y = k; break; }
       if (level == y) correct++;
-      double p = LevelProb(dotprod, w, level) - LevelProb(dotprod, w, level+1);
+      double probpred = LevelProb(dotprod, w, y) - LevelProb(dotprod, w, y+1);
+      double probtrue = LevelProb(dotprod, w, level) - LevelProb(dotprod, w, level+1);
       cerr << "line=" << (i+1) << " true=" << level << " pred=" << y
-        << " prob=" << p << endl;
+        << " prob_pred=" << probpred << " prob_true=" << probtrue << endl;
     }
     return correct / test.size();
   }
