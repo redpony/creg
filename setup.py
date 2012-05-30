@@ -11,7 +11,7 @@ ext_modules = [
         sources=['python/creg.pyx'] + lbfgs_sources + creg_sources,
         language='C++', 
         include_dirs=['.', 'creg'],
-        libraries=['boost_program_options-mt'])
+        libraries=['boost_program_options-mt', 'z'])
 ]
 
 setup(
