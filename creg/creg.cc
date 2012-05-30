@@ -241,7 +241,7 @@ struct UnivariateSquaredLoss : public BaseLoss {
       const float refy = test[i].y.value;
       ComputeDotProducts(fmapx, w, &dotprods);
       double diff = dotprods[0] - refy;
-      cerr << "line=" << (i+1) << " true=" << refy << " pred=" << dotprods[0] << endl;
+      //cerr << "line=" << (i+1) << " true=" << refy << " pred=" << dotprods[0] << endl;
       mse += diff * diff;
     }
     mse /= test.size();
@@ -287,8 +287,7 @@ struct MulticlassLogLoss : public BaseLoss {
   }
 
   double Evaluate(const vector<TrainingInstance>& test,
-                  const vector<double>& w,
-                  const vector<string>& labels) const {
+                  const vector<double>& w) const {
     vector<double> dotprods(K - 1);  // K-1 degrees of freedom
     double correct = 0;
     for (unsigned i = 0; i < test.size(); ++i) {
@@ -299,7 +298,7 @@ struct MulticlassLogLoss : public BaseLoss {
       unsigned besty = dotprods.size();
       for (unsigned y = 0; y < dotprods.size(); ++y)
         if (dotprods[y] > best) { best = dotprods[y]; besty = y; }
-      cerr << "line=" << (i+1) << " true=" << labels[refy] << " pred=" << labels[besty] << endl;
+      //cerr << "line=" << (i+1) << " true=" << labels[refy] << " pred=" << labels[besty] << endl;
       if (refy == besty) { ++correct; }
     }
     return correct / test.size();
@@ -355,8 +354,8 @@ struct OrdinalLogLoss : public BaseLoss {
       if (level == y) correct++;
       double probpred = LevelProb(dotprod, w, y) - LevelProb(dotprod, w, y+1);
       double probtrue = LevelProb(dotprod, w, level) - LevelProb(dotprod, w, level+1);
-      cerr << "line=" << (i+1) << " true=" << level << " pred=" << y
-        << " prob_pred=" << probpred << " prob_true=" << probtrue << endl;
+      //cerr << "line=" << (i+1) << " true=" << level << " pred=" << y
+      //  << " prob_pred=" << probpred << " prob_true=" << probtrue << endl;
     }
     return correct / test.size();
   }
@@ -379,7 +378,6 @@ struct OrdinalLogLoss : public BaseLoss {
 
   double LogDeltaProb(double dotprod, const vector<double>& w,
                       unsigned level) const { // log p(y == level + 1)
-                        double v;
         if (level == K-1) {
           prob_t zj = prob_t(dotprod, init_lnx()) + prob_t(w[K-2], init_lnx());
           return dotprod - log(zj);
@@ -509,7 +507,7 @@ int main(int argc, char** argv) {
     LearnParameters(loss, l1, km1, memory_buffers, epsilon, delta, &weights);
 
     if (test.size())
-      cerr << "Held-out accuracy: " << loss.Evaluate(test, weights, labels) << endl;
+      cerr << "Held-out accuracy: " << loss.Evaluate(test, weights) << endl;
 
     cout << p << "\t***CATEGORICAL***";
     for (unsigned y = 0; y < K; ++y)
@@ -528,4 +526,3 @@ int main(int argc, char** argv) {
 
   return 0;
 }
-
