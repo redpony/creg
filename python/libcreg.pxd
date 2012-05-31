@@ -25,13 +25,7 @@ cdef extern from "creg/creg.cc":
     cdef cppclass BaseLoss:
         BaseLoss()
 
-        void ComputeDotProducts(
-                SparseVector[float] fx,
-                vector[double] w,
-                vector[double]* pdotprods)
-
-        double Evaluate(vector[TrainingInstance] test,
-                vector[double] w)
+        double Evaluate(vector[TrainingInstance] test, vector[double] w)
 
     cdef cppclass MulticlassLogLoss(BaseLoss):
         MulticlassLogLoss(
@@ -40,11 +34,24 @@ cdef extern from "creg/creg.cc":
           unsigned numfeats,
           double l2)
 
+        unsigned Predict(SparseVector[float] fx, vector[double] w)
+
+    cdef cppclass OrdinalLogLoss(BaseLoss):
+        OrdinalLogLoss(
+          vector[TrainingInstance] tr,
+          unsigned k,
+          unsigned numfeats,
+          double l2)
+
+        unsigned Predict(SparseVector[float] fx, vector[double] w)
+
     cdef cppclass UnivariateSquaredLoss(BaseLoss):
         UnivariateSquaredLoss(
           vector[TrainingInstance] tr,
           unsigned numfeats,
           double l2)
+
+        double Predict(SparseVector[float] fx, vector[double] w)
 
     double LearnParameters(BaseLoss loss,
             double l1,

@@ -2,6 +2,7 @@ from libcpp.pair cimport pair
 from libcpp.vector cimport vector
 from libcreg cimport *
 import heapq
+import math
 
 cdef extern from *:
     ctypedef char* const_char_ptr "const char*"
@@ -60,7 +61,7 @@ cdef class Dataset:
 cdef class CategoricalDataset(Dataset):
 
     cdef readonly list labels
-    cdef dict label_map
+    cdef readonly dict label_map
 
     def __init__(self, data):
         """
@@ -87,6 +88,24 @@ cdef class RealvaluedDataset(Dataset):
         data: iterator of (dict, float) pairs
         """
         super(RealvaluedDataset, self).__init__(data, False)
+        
+cdef class OrdinalDataset(Dataset):
+
+    cdef readonly set levels
+
+    def __init__(self, data):
+        """
+        Dataset with categorical response
+        data: iterator of (dict, int) pairs
+        """
+        self.levels = set()
+        super(OrdinalDataset, self).__init__(data, True)
+        assert self.levels == set(range(len(self.levels)))
+
+    def get_label(self, response):
+        level = int(response)
+        self.levels.add(level)
+        return level
 
 
 cdef class Weights:
@@ -124,6 +143,31 @@ cdef class LinearRegressionWeights(Weights):
     def __getitem__(self, char* fname):
         cdef unsigned u = (0 if fname == BIAS else 1+Convert(<char*> fname))
         return self.model.weight_vector[0][u]
+
+cdef class OrdinalRegressionWeights(Weights):
+    
+    cdef OrdinalRegression model
+
+    def __cinit__(self, OrdinalRegression model):
+        self.model = model
+
+    def __iter__(self):
+        cdef unsigned K = num_features()
+        for k in range(1, K-1):
+            yield 'y>=%d' % k, self.model.weight_vector[0][k-1]
+        cdef double fval
+        cdef unsigned f
+        cdef const_char_ptr fname
+        for f in range(1, num_features()):
+            fval = self.model.weight_vector[0][K-2+f]
+            fname = Convert(f).c_str()
+            yield fname.decode('utf8'), fval
+
+    """
+    def __getitem__(self, char* fname):
+        cdef unsigned u = (0 if fname == BIAS else 1+Convert(<char*> fname))
+        return self.model.weight_vector[0][u]
+    """
 
 cdef class Model:
 
@@ -173,23 +217,15 @@ cdef class LogisticRegression(Model):
         else:
             del self.loss
         self.loss = new MulticlassLogLoss(data.instances[0], K, num_features(), l2)
-        LearnParameters(self.loss[0], l1, K-1, memory_buffers, epsilon, delta, self.weight_vector)
+        LearnParameters(self.loss[0], l1, K-1, memory_buffers,
+            epsilon, delta, self.weight_vector)
 
     def predict(self, features):
         assert (self.loss != NULL)
-        cdef vector[double] dotprods
-        cdef unsigned K = len(self.data.labels)
-        dotprods.resize(K - 1, 0.0)
-        cdef SparseVector[float]* fv = fvector(features)
-        self.loss.ComputeDotProducts(fv[0], self.weight_vector[0], &dotprods);
-        cdef double best = 0
-        cdef unsigned y, besty = dotprods.size()
-        for y in range(dotprods.size()):
-            if dotprods[y] > best:
-                best = dotprods[y]
-                besty = y
-        del fv
-        return self.data.labels[besty]
+        cdef SparseVector[float]* fx = fvector(features)
+        cdef unsigned y = self.loss.Predict(fx[0], self.weight_vector[0])
+        del fx
+        return y
 
     def evaluate(self, CategoricalDataset data):
         """ Returns accuracy of the predictions for the dataset"""
@@ -238,23 +274,21 @@ cdef class LinearRegression(Model):
 
     def fit(self, RealvaluedDataset data,
             double l1=0, double l2=0, unsigned memory_buffers=40,
-            double epsilon=1e-4, double delta=1e-5):
+            double epsilon=1e-4, double delta=0):
         if self.loss == NULL:
-            self.weight_vector.resize((1 + num_features()), 0.0)
+            self.weight_vector.resize(1 + num_features(), 0.0)
         else:
             del self.loss
         self.loss = new UnivariateSquaredLoss(data.instances[0], num_features(), l2)
-        LearnParameters(self.loss[0], l1, 1, memory_buffers, epsilon, delta, self.weight_vector)
+        LearnParameters(self.loss[0], l1, 1, memory_buffers,
+            epsilon, delta, self.weight_vector)
 
     def predict(self, features):
         assert (self.loss != NULL)
-        cdef vector[double] dotprods
-        dotprods.resize(1, 0.0)
-        cdef SparseVector[float]* fv = fvector(features)
-        self.loss.ComputeDotProducts(fv[0], self.weight_vector[0], &dotprods);
-        cdef double value = dotprods[0]
-        del fv
-        return value
+        cdef SparseVector[float]* fx = fvector(features)
+        cdef double y = self.loss.Predict(fx[0], self.weight_vector[0])
+        del fx
+        return y
 
     def evaluate(self, RealvaluedDataset data):
         """ Returns RMSE of the predictions for the dataset"""
@@ -273,3 +307,41 @@ cdef class LinearRegression(Model):
         Freeze()
         cdef vector[TrainingInstance] instances
         self.loss = new UnivariateSquaredLoss(instances, num_features, 0)
+
+cdef class OrdinalRegression(Model):
+    cdef OrdinalLogLoss* loss
+
+    def __dealloc__(self):
+        if self.loss != NULL:
+            del self.loss
+
+    property weights:
+        def __get__(self):
+            assert (self.weight_vector.size() > 0)
+            return OrdinalRegressionWeights(self)
+
+    def fit(self, OrdinalDataset data,
+            double l1=0, double l2=0, unsigned memory_buffers=40,
+            double epsilon=1e-4, double delta=0):
+        cdef unsigned K = len(data.levels)
+        if self.loss == NULL:
+            self.weight_vector.resize(K - 1 + num_features(), 0.0)
+            for k in range(K-1):
+              self.weight_vector[0][k] = math.log(k+1) - math.log(K)
+        else:
+            del self.loss
+        self.loss = new OrdinalLogLoss(data.instances[0], K, num_features(), l2)
+        LearnParameters(self.loss[0], l1, K-1, memory_buffers,
+            epsilon, delta, self.weight_vector)
+
+    def predict(self, features):
+        assert (self.loss != NULL)
+        cdef SparseVector[float]* fx = fvector(features)
+        cdef double y = self.loss.Predict(fx[0], self.weight_vector[0])
+        del fx
+        return y
+
+    def evaluate(self, RealvaluedDataset data):
+        """ Returns accuracy of the predictions for the dataset"""
+        assert (self.loss != NULL)
+        return self.loss.Evaluate(data.instances[0], self.weight_vector[0])
