@@ -121,7 +121,8 @@ void ReadLabeledInstances(const string& ffeats,
         break;
       case kORDINAL:
         {
-          // TODO: allow labels not to be consecutive and start from 0 (requires re-indexing)
+          // TODO allow labels not to be consecutive and start from 0 
+          // requires label re-indexing
           const unsigned label = strtol(&line[p], 0, 10);
           xy_pairs->back().y.label = label;
           if (label >= labels->size()) {
@@ -157,27 +158,14 @@ struct BaseLoss {
       unsigned numfeats,
       unsigned ll2) : training(tr), K(dimp1), p(numfeats), l2(ll2) {}
 
-  // weight vector layout for K classes, with p features
-  //   w[0 : K-1] = bias weights
-  //   w[y*p + K : y*p + K + p - 1] = feature weights for y^th class
-  // this representation is used in ComputeDotProducts and GradAdd
-  void ComputeDotProducts(const SparseVector<float>& fx,  // feature vector of x
-                          const vector<double>& w,         // full weight vector
-                          vector<double>* pdotprods,
-                          unsigned num_dotprods = 0       // 0 for k-1
-                         ) const {
-    vector<double>& dotprods = *pdotprods;
+  // w.x (bias excluded)
+  double DotProduct(const SparseVector<float>& fx,
+                    const vector<double>& w) const {
     const unsigned km1 = K - 1;
-    dotprods.resize(km1);
-    if (!num_dotprods) num_dotprods = km1;
-    for (unsigned y = 0; y < num_dotprods; ++y)
-      dotprods[y] = w[y];  // bias terms
-    for (SparseVector<float>::const_iterator it = fx.begin(); it != fx.end(); ++it) {
-      const float fval = it->second;
-      const unsigned fid = it->first;
-      for (unsigned y = 0; y < km1; ++y)
-        dotprods[y] += w[fid + y * p + km1] * fval;
-    }
+    double dotproduct = 0;
+    for (SparseVector<float>::const_iterator it = fx.begin(); it != fx.end(); ++it)
+      dotproduct += w[it->first + km1] * it->second;
+    return dotproduct;
   }
 
   double ApplyRegularizationTerms(const vector<double>& weights,
@@ -207,41 +195,47 @@ struct BaseLoss {
 };
 
 struct UnivariateSquaredLoss : public BaseLoss {
+
+  // weight vector layout for p features
+  //   w[0] = bias weight
+  //   w[1 : p] = feature weights
+
   UnivariateSquaredLoss(
           const vector<TrainingInstance>& tr,
           unsigned numfeats,
           const double l2) : BaseLoss(tr, 2, numfeats, l2) {}
 
+  double Predict(const SparseVector<float>& fx,
+                 const vector<double>& w) const {
+    return DotProduct(fx, w) + w[0];
+  }
+
   // evaluate squared loss and gradient
   double operator()(const vector<double>& x, double* g) const {
     fill(g, g + x.size(), 0.0);
     double cll = 0;
-    vector<double> dotprods(1);  // univariate prediction
     for (unsigned i = 0; i < training.size(); ++i) {
       const SparseVector<float>& fmapx = training[i].x;
       const double refy = training[i].y.value;
-      ComputeDotProducts(fmapx, x, &dotprods);
-      double diff = dotprods[0] - refy;
+      const double predy = Predict(fmapx, x);
+      const double diff = predy - refy;
       cll += diff * diff;
-
-      double scale = 2 * diff;
-      GradAdd(fmapx, 0, scale, g);
+      GradAdd(fmapx, 0, 2 * diff, g);
     }
-    double reg = ApplyRegularizationTerms(x, g);
+    const double reg = ApplyRegularizationTerms(x, g);
     return cll + reg;
   }
 
-  // return root mse
+  // return RMSE
   double Evaluate(const vector<TrainingInstance>& test,
                   const vector<double>& w) const {
     vector<double> dotprods(1);  // K-1 degrees of freedom
     double mse = 0;
     for (unsigned i = 0; i < test.size(); ++i) {
-      const SparseVector<float>& fmapx = test[i].x;
-      const float refy = test[i].y.value;
-      ComputeDotProducts(fmapx, w, &dotprods);
-      double diff = dotprods[0] - refy;
-      //cerr << "line=" << (i+1) << " true=" << refy << " pred=" << dotprods[0] << endl;
+      const double predy = Predict(test[i].x, w);
+      const double refy = test[i].y.value;
+      const double diff = predy - refy;
+      //cerr << "line=" << (i+1) << " true=" << refy << " pred=" << predy << endl;
       mse += diff * diff;
     }
     mse /= test.size();
@@ -250,6 +244,11 @@ struct UnivariateSquaredLoss : public BaseLoss {
 };
 
 struct MulticlassLogLoss : public BaseLoss {
+
+  // weight vector layout for K classes, with p features
+  //   w[0 : K-2] = bias weights
+  //   w[y*p + K-1 : y*p + K + p - 2] = feature weights for y^th class
+
   MulticlassLogLoss(
           const vector<TrainingInstance>& tr,
           unsigned k,
@@ -286,26 +285,52 @@ struct MulticlassLogLoss : public BaseLoss {
     return cll + reg;
   }
 
+  unsigned Predict(const SparseVector<float>& fx,
+                   const vector<double>& w) const {
+    vector<double> dotprods(K - 1);  // K-1 degrees of freedom
+    ComputeDotProducts(fx, w, &dotprods);
+    double best = 0;
+    unsigned besty = dotprods.size();
+    for (unsigned y = 0; y < dotprods.size(); ++y)
+      if (dotprods[y] > best) { best = dotprods[y]; besty = y; }
+    return besty;
+  }
+
   double Evaluate(const vector<TrainingInstance>& test,
                   const vector<double>& w) const {
-    vector<double> dotprods(K - 1);  // K-1 degrees of freedom
     double correct = 0;
     for (unsigned i = 0; i < test.size(); ++i) {
-      const SparseVector<float>& fmapx = test[i].x;
+      const unsigned predy = Predict(test[i].x, w);
       const unsigned refy = test[i].y.label;
-      ComputeDotProducts(fmapx, w, &dotprods);
-      double best = 0;
-      unsigned besty = dotprods.size();
-      for (unsigned y = 0; y < dotprods.size(); ++y)
-        if (dotprods[y] > best) { best = dotprods[y]; besty = y; }
       //cerr << "line=" << (i+1) << " true=" << labels[refy] << " pred=" << labels[besty] << endl;
-      if (refy == besty) { ++correct; }
+      if (refy == predy) { ++correct; }
     }
     return correct / test.size();
+  }
+
+  void ComputeDotProducts(const SparseVector<float>& fx,  // feature vector of x
+                          const vector<double>& w,         // full weight vector
+                          vector<double>* pdotprods) const {
+    vector<double>& dotprods = *pdotprods;
+    const unsigned km1 = K - 1;
+    dotprods.resize(km1);
+    for (unsigned y = 0; y < km1; ++y)
+      dotprods[y] = w[y];  // bias terms
+    for (SparseVector<float>::const_iterator it = fx.begin(); it != fx.end(); ++it) {
+      const float fval = it->second;
+      const unsigned fid = it->first;
+      for (unsigned y = 0; y < km1; ++y)
+        dotprods[y] += w[fid + y * p + km1] * fval;
+    }
   }
 };
 
 struct OrdinalLogLoss : public BaseLoss {
+
+  // weight vector layout for K levels, with p features
+  //   w[0 : K-2] = level biases
+  //   w[K-1 : K + p - 2] = feature weights
+
   OrdinalLogLoss(
           const vector<TrainingInstance>& tr,
           unsigned k,
@@ -341,32 +366,29 @@ struct OrdinalLogLoss : public BaseLoss {
     return cll + reg;
   }
 
+  unsigned Predict(const SparseVector<float>& fx,
+                   const vector<double>& w) const {
+    const double dotprod = DotProduct(fx, w);
+    for (unsigned k = 0; k < K; k++)
+      if (dotprod < w[k]) return k;
+    return K-1;
+  }
+
   double Evaluate(const vector<TrainingInstance>& test,
                   const vector<double>& w) const {
     double correct = 0;
     for (unsigned i = 0; i < test.size(); ++i) {
-      const SparseVector<float>& fmapx = test[i].x;
-      const unsigned level = test[i].y.label;
-      const double dotprod = DotProduct(fmapx, w);
-      unsigned y = K-1;
-      for (unsigned k = 0; k < K; k++)
-        if (dotprod < w[k]) { y = k; break; }
-      if (level == y) correct++;
-      double probpred = LevelProb(dotprod, w, y) - LevelProb(dotprod, w, y+1);
-      double probtrue = LevelProb(dotprod, w, level) - LevelProb(dotprod, w, level+1);
-      //cerr << "line=" << (i+1) << " true=" << level << " pred=" << y
-      //  << " prob_pred=" << probpred << " prob_true=" << probtrue << endl;
+      const unsigned predy = Predict(test[i].x, w);
+      const unsigned refy = test[i].y.label;
+      if (refy == predy) correct++;
+      /*
+         double probpred = LevelProb(dotprod, w, y) - LevelProb(dotprod, w, y+1);
+         double probtrue = LevelProb(dotprod, w, level) - LevelProb(dotprod, w, level+1);
+         cerr << "line=" << (i+1) << " true=" << level << " pred=" << y
+         << " prob_pred=" << probpred << " prob_true=" << probtrue << endl;
+      */
     }
     return correct / test.size();
-  }
-
-  double DotProduct(const SparseVector<float>& fx,
-                    const vector<double>& w) const {
-    unsigned km1 = K - 1;
-    double dotproduct = 0;
-    for (SparseVector<float>::const_iterator it = fx.begin(); it != fx.end(); ++it)
-      dotproduct += w[it->first + km1] * it->second;
-    return dotproduct;
   }
 
   double LevelProb(double dotprod, const vector<double>& w,
@@ -466,7 +488,7 @@ int main(int argc, char** argv) {
     LearnParameters(loss, l1, 1, memory_buffers, epsilon, delta, &weights);
 
     if (test.size())
-      cerr << "Held-out root MSE: " << loss.Evaluate(test, weights) << endl;
+      cerr << "Held-out RMSE: " << loss.Evaluate(test, weights) << endl;
 
     cout << p << "\t***CONTINUOUS***" << endl;
     cout << "***BIAS***\t" << weights[0] << endl;
@@ -492,7 +514,7 @@ int main(int argc, char** argv) {
       cout << '\t' << labels[y];
     cout << endl;
     for (unsigned y = 0; y < km1; ++y)
-      cout << labels[y+1] << "\t***INTERCEPT***\t" << weights[y] << endl;
+      cout << "y>=" << labels[y+1] << "\t" << weights[y] << endl;
     for (unsigned f = 0; f < p; ++f) {
       const double w = weights[km1 + f];
       if (w) cout << FD::Convert(f) << "\t" << w << endl;
