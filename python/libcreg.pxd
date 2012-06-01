@@ -25,8 +25,6 @@ cdef extern from "creg/creg.cc":
     cdef cppclass BaseLoss:
         BaseLoss()
 
-        double Evaluate(vector[TrainingInstance] test, vector[double] w)
-
     cdef cppclass MulticlassLogLoss(BaseLoss):
         MulticlassLogLoss(
           vector[TrainingInstance] tr,
@@ -35,6 +33,7 @@ cdef extern from "creg/creg.cc":
           double l2)
 
         unsigned Predict(SparseVector[float] fx, vector[double] w)
+        double Evaluate(vector[TrainingInstance] test, vector[double] w)
 
     cdef cppclass OrdinalLogLoss(BaseLoss):
         OrdinalLogLoss(
@@ -44,6 +43,7 @@ cdef extern from "creg/creg.cc":
           double l2)
 
         unsigned Predict(SparseVector[float] fx, vector[double] w)
+        double Evaluate(vector[TrainingInstance] test, vector[double] w)
 
     cdef cppclass UnivariateSquaredLoss(BaseLoss):
         UnivariateSquaredLoss(
@@ -52,6 +52,7 @@ cdef extern from "creg/creg.cc":
           double l2)
 
         double Predict(SparseVector[float] fx, vector[double] w)
+        double Evaluate(vector[TrainingInstance] test, vector[double] w)
 
     double LearnParameters(BaseLoss loss,
             double l1,
@@ -60,3 +61,6 @@ cdef extern from "creg/creg.cc":
             double epsilon,
             double delta,
             vector[double]* px)
+
+cdef extern from *:
+    ctypedef char* const_char_ptr "const char*"

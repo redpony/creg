@@ -4,4 +4,3 @@ dist/
 jam-files/bjam
 liblbfgs/bin/
 previous.sh
-python/creg.cpp
