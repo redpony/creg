@@ -7,6 +7,19 @@ import math
 cdef extern from *:
     ctypedef char* const_char_ptr "const char*"
 
+class Bias:
+    def __str__(self):
+        return '***BIAS***'
+
+class Intercept:
+    def __init__(self, level):
+        self.level = level
+
+    def __str__(self):
+        return 'y>=%d' % self.level
+
+BIAS = Bias()
+
 cdef SparseVector[float]* fvector(features):
     cdef pair[int, float] *fpair, *front, *back
     cdef vector[pair[int, float]]* featmap = new vector[pair[int, float]]()
@@ -140,7 +153,7 @@ cdef class LinearRegressionWeights(Weights):
             fname = Convert(f).c_str()
             yield fname.decode('utf8'), fval
 
-    def __getitem__(self, char* fname):
+    def __getitem__(self, fname):
         cdef unsigned u = (0 if fname == BIAS else 1+Convert(<char*> fname))
         return self.model.weight_vector[0][u]
 
@@ -151,23 +164,27 @@ cdef class OrdinalRegressionWeights(Weights):
     def __cinit__(self, OrdinalRegression model):
         self.model = model
 
+    def __len__(self):
+        cdef unsigned K = len(self.model.data.levels)
+        return num_features() + K - 2
+
     def __iter__(self):
-        cdef unsigned K = num_features()
-        for k in range(1, K-1):
-            yield 'y>=%d' % k, self.model.weight_vector[0][k-1]
+        cdef unsigned K = len(self.model.data.levels)
+        for k in range(1, K):
+            yield Intercept(k), self.model.weight_vector[0][k-1]
         cdef double fval
         cdef unsigned f
         cdef const_char_ptr fname
         for f in range(1, num_features()):
-            fval = self.model.weight_vector[0][K-2+f]
+            fval = self.model.weight_vector[0][K-1+f]
             fname = Convert(f).c_str()
             yield fname.decode('utf8'), fval
 
-    """
-    def __getitem__(self, char* fname):
-        cdef unsigned u = (0 if fname == BIAS else 1+Convert(<char*> fname))
+    def __getitem__(self, fname):
+        cdef unsigned K = len(self.model.data.levels)
+        cdef unsigned u = (fname.level-1 if isinstance(fname, Intercept) 
+            else K-1+Convert(<char*> fname))
         return self.model.weight_vector[0][u]
-    """
 
 cdef class Model:
 
@@ -178,8 +195,6 @@ cdef class Model:
 
     def __dealloc__(self):
         del self.weight_vector
-
-BIAS = '***BIAS***'
 
 cdef class LogisticRegression(Model):
 
@@ -225,7 +240,7 @@ cdef class LogisticRegression(Model):
         cdef SparseVector[float]* fx = fvector(features)
         cdef unsigned y = self.loss.Predict(fx[0], self.weight_vector[0])
         del fx
-        return y
+        return self.data.labels[y]
 
     def evaluate(self, CategoricalDataset data):
         """ Returns accuracy of the predictions for the dataset"""
@@ -309,7 +324,9 @@ cdef class LinearRegression(Model):
         self.loss = new UnivariateSquaredLoss(instances, num_features, 0)
 
 cdef class OrdinalRegression(Model):
+
     cdef OrdinalLogLoss* loss
+    cdef OrdinalDataset data
 
     def __dealloc__(self):
         if self.loss != NULL:
@@ -323,6 +340,7 @@ cdef class OrdinalRegression(Model):
     def fit(self, OrdinalDataset data,
             double l1=0, double l2=0, unsigned memory_buffers=40,
             double epsilon=1e-4, double delta=0):
+        self.data = data
         cdef unsigned K = len(data.levels)
         if self.loss == NULL:
             self.weight_vector.resize(K - 1 + num_features(), 0.0)
