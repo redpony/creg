@@ -3,11 +3,13 @@
 
 #include <iostream>
 #include <string>
-
-#include "sparse_vector.h"
+#include <utility>
 
 struct JSONFeatureMapLexer {
-  typedef void (*FeatureMapCallback)(const std::string& id, const SparseVector<float>& fmap, void* extra);
+  typedef void (*FeatureMapCallback)(const std::string& id,
+                                     const std::pair<int,float>* begin,
+                                     const std::pair<int,float>* end,
+                                     void* extra);
   static void ReadRules(std::istream* in, FeatureMapCallback func, void* extra);
 };
 

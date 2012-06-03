@@ -50,10 +50,4 @@ inline std::ostream& operator<<(std::ostream& out, const SparseVector<T>& v) {
   return out;
 }
 
-namespace B64 {
-  void Encode(double objective, const SparseVector<double>& v, std::ostream* out);
-  // returns false if failed to decode
-  bool Decode(double* objective, SparseVector<double>* v, const char* data, size_t size);
-}
-
 #endif

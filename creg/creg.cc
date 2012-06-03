@@ -61,7 +61,10 @@ struct ReaderHelper {
   bool flag;
 };
 
-void ReaderCB(const string& id, const SparseVector<float>& fmap, void* extra) {
+void ReaderCB(const string& id,
+              const std::pair<int,float>* begin,
+              const std::pair<int,float>* end,
+              void* extra) {
   ReaderHelper& rh = *reinterpret_cast<ReaderHelper*>(extra);
   ++rh.lc;
   if (rh.lc % 1000 == 0) { cerr << '.'; rh.flag = true; }
@@ -71,7 +74,7 @@ void ReaderCB(const string& id, const SparseVector<float>& fmap, void* extra) {
     cerr << "Unlabeled example in line " << rh.lc << " (key=" << id << ')' << endl;
     abort();
   }
-  (*rh.xy_pairs)[it->second - 1].x = fmap;
+  (*rh.xy_pairs)[it->second - 1].x = SparseVector<float>(begin,end);
 }
 
 void ReadLabeledInstances(const string& ffeats,

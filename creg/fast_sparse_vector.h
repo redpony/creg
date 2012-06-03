@@ -14,14 +14,7 @@
 #include <cassert>
 #include <vector>
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-
 #include <boost/static_assert.hpp>
-#if HAVE_BOOST_ARCHIVE_TEXT_OARCHIVE_HPP
-#include <boost/serialization/map.hpp>
-#endif
 
 #include "fdict.h"
 
@@ -120,7 +113,7 @@ class FastSparseVector {
     std::memcpy(this, &other, sizeof(FastSparseVector));
     if (is_remote_) data_.rbmap = new std::map<int, T>(*data_.rbmap);
   }
-  FastSparseVector(std::pair<int, T>* first, std::pair<int, T>* last) {
+  FastSparseVector(const std::pair<int, T>* first, const std::pair<int, T>* last) {
     const ptrdiff_t n = last - first;
     if (n <= LOCAL_MAX) {
       is_remote_ = false;
@@ -376,43 +369,7 @@ class FastSparseVector {
   unsigned char local_size_;
   bool is_remote_;
 
-#if HAVE_BOOST_ARCHIVE_TEXT_OARCHIVE_HPP
- private:
-  friend class boost::serialization::access;
-  template<class Archive>
-  void save(Archive & ar, const unsigned int version) const {
-    (void) version;
-    int eff_size = size();
-    const_iterator it = this->begin();
-    if (eff_size > 0) {
-      // 0 index is reserved as empty
-      if (it->first == 0) { ++it; --eff_size; }
-    }
-    ar & eff_size;
-    while (it != this->end()) {
-      const std::pair<std::string, T> wire_pair(FD::Convert(it->first), it->second);
-      ar & wire_pair;
-      ++it;
-    }
-  }
-  template<class Archive>
-  void load(Archive & ar, const unsigned int version) {
-    (void) version;
-    this->clear();
-    int sz; ar & sz;
-    for (int i = 0; i < sz; ++i) {
-      std::pair<std::string, T> wire_pair;
-      ar & wire_pair;
-      this->set_value(FD::Convert(wire_pair.first), wire_pair.second);
-    }
-  }
-  BOOST_SERIALIZATION_SPLIT_MEMBER()
-#endif
 };
-
-#if HAVE_BOOST_ARCHIVE_TEXT_OARCHIVE_HPP
-BOOST_CLASS_TRACKING(FastSparseVector<double>,track_never)
-#endif
 
 template <typename T>
 const FastSparseVector<T> operator+(const FastSparseVector<T>& x, const FastSparseVector<T>& y) {

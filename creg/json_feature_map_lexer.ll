@@ -77,10 +77,9 @@ UNESCAPED_CH [^\"\\\b\n\r\f\t]
 
 <JSON>{WS}*{LCB}{WS}*                    { BEGIN(PREVAL); }
 
-<JSON>{WS}*{LCB}{WS}*{RCB}\n*            {const SparseVector<float> x;
-                                         json_fmap_callback(instid, x, json_fmap_callback_extra);
-                                         curfeat = 0;
-                                         BEGIN(INITIAL);}
+<JSON>{WS}*{LCB}{WS}*{RCB}\n*            { json_fmap_callback(instid, &featmap[0], &featmap[0], json_fmap_callback_extra);
+                                           curfeat = 0;
+                                           BEGIN(INITIAL); }
 
 <PREVAL>\"                               { BEGIN(STRING); spos=0; }
 
@@ -107,8 +106,7 @@ UNESCAPED_CH [^\"\\\b\n\r\f\t]
 
 <POSTVAL>{WS}*,{WS}*                     { BEGIN(PREVAL); }
 <POSTVAL>{WS}*{RCB}\n*                   {
-                                           const SparseVector<float> x(&featmap[0], &featmap[curfeat]);
-                                           json_fmap_callback(instid, x, json_fmap_callback_extra);
+                                           json_fmap_callback(instid, &featmap[0], &featmap[curfeat], json_fmap_callback_extra);
                                            curfeat = 0;
                                            BEGIN(INITIAL);
                                          }
@@ -128,14 +126,3 @@ void JSONFeatureMapLexer::ReadRules(std::istream* in, FeatureMapCallback func, v
   json_fmap_yylex();
 }
 
-#if 0
-void cb(const std::string& id, const SparseVector<float>& fmap, void* extra) {
-  (void) extra;
-  static int cc = 0;
-  cc++;
-}
-
-int main() {
-  JSONFeatureMapLexer::ReadRules(&std::cin, cb, NULL);
-}
-#endif
