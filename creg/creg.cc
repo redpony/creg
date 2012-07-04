@@ -9,9 +9,10 @@
 #include <boost/program_options/variables_map.hpp>
 
 #include "json_feature_map_lexer.h"
+#include "fdict.h"
+#include "feature_map.h"
 #include "prob.h"
 #include "filelib.h"
-#include "sparse_vector.h"
 #include "liblbfgs/lbfgs++.h"
 
 using namespace std;
@@ -21,18 +22,21 @@ namespace po = boost::program_options;
 void InitCommandLine(int argc, char** argv, po::variables_map* conf) {
   po::options_description opts("Configuration options");
   opts.add_options()
-        ("training_features,x", po::value<string>(), "File containing training instance features (ARKRegression format)")
-        ("training_responses,y", po::value<string>(), "File containing training response features (ARKRegression format)")
+        ("training_features,x", po::value<string>(), "File containing training instance features")
+        ("training_responses,y", po::value<string>(), "File containing training instance responses")
+        ("tx", po::value<string>(), "File containing test instance features")
+        ("ty", po::value<string>(), "File containing test instance responses")
         ("linear,n", "Linear (rather than logistic) regression")
         ("ordinal,o", "Ordinal regression (proportional odds)")
         ("l1",po::value<double>()->default_value(0.0), "l_1 regularization strength")
         ("l2",po::value<double>()->default_value(1e-10), "l_2 regularization strength")
-        ("test_features,t", po::value<string>(), "File containing training instance features (ARKRegression format)")
-        ("test_responses,s", po::value<string>(), "File containing training response features (ARKRegression format)")
+        ("temperature,T",po::value<double>()->default_value(0), "Temperature for entropy regularization (> 0 flattens, < 0 sharpens; = 0 no effect)")
         ("weights,w", po::value<string>(), "Initial weights")
         ("epsilon,e", po::value<double>()->default_value(1e-4), "Epsilon for convergence test. Terminates when ||g|| < epsilon * max(1, ||w||)")
         ("delta,d", po::value<double>()->default_value(0), "Delta for convergence test. Terminates when (f' - f) / f < delta")
         ("memory_buffers,m",po::value<unsigned>()->default_value(40), "Number of memory buffers for LBFGS")
+        ("test_features,t", po::value<string>(), "[deprecated option, use --tx] File containing test instance features")
+        ("test_responses,s", po::value<string>(), "[deprecated option, use --ty] File containing test response features (ARKRegression format)")
         ("help,h", "Help");
   po::options_description dcmdline_options;
   dcmdline_options.add(opts);
@@ -46,7 +50,7 @@ void InitCommandLine(int argc, char** argv, po::variables_map* conf) {
 enum RegressionType { kLINEAR, kLOGISTIC, kORDINAL };
 
 struct TrainingInstance {
-  SparseVector<float> x;
+  FrozenFeatureMap x;
   union {
     unsigned label;  // for categorical & ordinal predictions
     float value;     // for continuous predictions
@@ -54,8 +58,9 @@ struct TrainingInstance {
 };
 
 struct ReaderHelper {
-  explicit ReaderHelper(vector<TrainingInstance>* xyp) : xy_pairs(xyp), lc(), flag() {}
+  explicit ReaderHelper(FeatureMapStorage* pfms, vector<TrainingInstance>* xyp) : fms(pfms), xy_pairs(xyp), lc(), flag() {}
   unordered_map<string, unsigned> id2ind;
+  FeatureMapStorage* fms;
   vector<TrainingInstance>* xy_pairs;
   int lc;
   bool flag;
@@ -74,18 +79,19 @@ void ReaderCB(const string& id,
     cerr << "Unlabeled example in line " << rh.lc << " (key=" << id << ')' << endl;
     abort();
   }
-  (*rh.xy_pairs)[it->second - 1].x = SparseVector<float>(begin,end);
+  (*rh.xy_pairs)[it->second - 1].x = rh.fms->AddFeatureMap(begin,end);
 }
 
 void ReadLabeledInstances(const string& ffeats,
-                 const string& fresp,
-                 const RegressionType resptype,
-                 vector<TrainingInstance>* xy_pairs,
-                 vector<string>* labels) {
+                          const string& fresp,
+                          const RegressionType resptype,
+                          FeatureMapStorage* fms,
+                          vector<TrainingInstance>* xy_pairs,
+                          vector<string>* labels) {
   bool flag = false;
   xy_pairs->clear();
   int lc = 0;
-  ReaderHelper rh(xy_pairs);
+  ReaderHelper rh(fms, xy_pairs);
   unordered_map<string, unsigned> label2id;
   cerr << "Reading responses from " << fresp << " ..." << endl;
   ReadFile fr(fresp);
@@ -162,11 +168,12 @@ struct BaseLoss {
       unsigned ll2) : training(tr), K(dimp1), p(numfeats), l2(ll2) {}
 
   // w.x (bias excluded)
-  double DotProduct(const SparseVector<float>& fx,
+  template <class FeatureMapType>
+  double DotProduct(const FeatureMapType& fx,
                     const vector<double>& w) const {
     const unsigned km1 = K - 1;
     double dotproduct = 0;
-    for (SparseVector<float>::const_iterator it = fx.begin(); it != fx.end(); ++it)
+    for (typename FeatureMapType::const_iterator it = fx.begin(); it != fx.end(); ++it)
       dotproduct += w[it->first + km1] * it->second;
     return dotproduct;
   }
@@ -182,12 +189,13 @@ struct BaseLoss {
     return reg;
   }
 
-  void GradAdd(const SparseVector<float>& fx,
+  template <class FeatureMapType>
+  void GradAdd(const FeatureMapType& fx,
                const unsigned y,
                const double scale,
                double* acc) const {
     acc[y] += scale; // class bias
-    for (SparseVector<float>::const_iterator it = fx.begin();
+    for (typename FeatureMapType::const_iterator it = fx.begin();
          it != fx.end(); ++it)
       acc[it->first + y * p + K - 1] += it->second * scale;
   }
@@ -208,8 +216,8 @@ struct UnivariateSquaredLoss : public BaseLoss {
           unsigned numfeats,
           const double l2) : BaseLoss(tr, 2, numfeats, l2) {}
 
-  double Predict(const SparseVector<float>& fx,
-                 const vector<double>& w) const {
+  template <class FeatureMapType>
+  double Predict(const FeatureMapType& fx, const vector<double>& w) const {
     return DotProduct(fx, w) + w[0];
   }
 
@@ -218,7 +226,7 @@ struct UnivariateSquaredLoss : public BaseLoss {
     fill(g, g + x.size(), 0.0);
     double cll = 0;
     for (unsigned i = 0; i < training.size(); ++i) {
-      const SparseVector<float>& fmapx = training[i].x;
+      const FrozenFeatureMap& fmapx = training[i].x;
       const double refy = training[i].y.value;
       const double predy = Predict(fmapx, x);
       const double diff = predy - refy;
@@ -256,7 +264,33 @@ struct MulticlassLogLoss : public BaseLoss {
           const vector<TrainingInstance>& tr,
           unsigned k,
           unsigned numfeats,
-          const double l2) : BaseLoss(tr, k, numfeats, l2) {}
+          const double l2,
+          const double t = 0.0) : BaseLoss(tr, k, numfeats, l2), T(t) {}
+
+  //   g = E[ F(x,y) * log p(y|x) ] + H(y | x) * E[ F(x,y) ]
+  //   note: g will be scaled by T
+  double Entropy(const prob_t& z,
+                 const vector<double>& dotprods,
+                 const FrozenFeatureMap& fmapx,
+                 double* g) const {
+    const double log_z = log(z);
+    double entropy = log_z * exp(-log_z);   // class K dotprod = 0
+    map<unsigned, double> ef;
+    for (unsigned j = 0; j < dotprods.size(); ++j) {
+      const double log_prob = dotprods[j] - log_z;
+      const double prob = exp(log_prob);
+      const double e_logprob = prob * log_prob;
+      entropy -= e_logprob;
+      GradAdd(fmapx, j, T * e_logprob, g);
+    }
+    for (unsigned j = 0; j < dotprods.size(); ++j) {
+      const double log_prob = dotprods[j] - log_z;
+      const double prob = exp(log_prob);
+      GradAdd(fmapx, j, T * prob * entropy, g);
+    }
+
+    return entropy;
+  }
 
   // evaluate log loss and gradient
   double operator()(const vector<double>& x, double* g) const {
@@ -264,8 +298,9 @@ struct MulticlassLogLoss : public BaseLoss {
     vector<double> dotprods(K - 1);  // K-1 degrees of freedom
     vector<prob_t> probs(K);
     double cll = 0;
+    double entropy = 0;  // only computed if T != 0
     for (unsigned i = 0; i < training.size(); ++i) {
-      const SparseVector<float>& fmapx = training[i].x;
+      const FrozenFeatureMap& fmapx = training[i].x;
       const unsigned refy = training[i].y.label;
       ComputeDotProducts(fmapx, x, &dotprods);
       prob_t z;
@@ -283,13 +318,14 @@ struct MulticlassLogLoss : public BaseLoss {
         if (y == refy) { scale -= 1.0; }
         GradAdd(fmapx, y, scale, g);
       }
+      if (T) entropy += Entropy(z, dotprods, fmapx, g);
     }
     double reg = ApplyRegularizationTerms(x, g);
-    return cll + reg;
+    return cll + reg - T * entropy;
   }
 
-  unsigned Predict(const SparseVector<float>& fx,
-                   const vector<double>& w) const {
+  template <class FeatureMapType>
+  unsigned Predict(const FeatureMapType& fx, const vector<double>& w) const {
     vector<double> dotprods(K - 1);  // K-1 degrees of freedom
     ComputeDotProducts(fx, w, &dotprods);
     double best = 0;
@@ -311,7 +347,8 @@ struct MulticlassLogLoss : public BaseLoss {
     return correct / test.size();
   }
 
-  void ComputeDotProducts(const SparseVector<float>& fx,  // feature vector of x
+  template <class FeatureMapType>
+  void ComputeDotProducts(const FeatureMapType& fx,  // feature vector of x
                           const vector<double>& w,         // full weight vector
                           vector<double>* pdotprods) const {
     vector<double>& dotprods = *pdotprods;
@@ -319,13 +356,15 @@ struct MulticlassLogLoss : public BaseLoss {
     dotprods.resize(km1);
     for (unsigned y = 0; y < km1; ++y)
       dotprods[y] = w[y];  // bias terms
-    for (SparseVector<float>::const_iterator it = fx.begin(); it != fx.end(); ++it) {
+    for (typename FeatureMapType::const_iterator it = fx.begin(); it != fx.end(); ++it) {
       const float fval = it->second;
       const unsigned fid = it->first;
       for (unsigned y = 0; y < km1; ++y)
         dotprods[y] += w[fid + y * p + km1] * fval;
     }
   }
+
+  const double T; // temperature for entropy regularization
 };
 
 struct OrdinalLogLoss : public BaseLoss {
@@ -350,7 +389,7 @@ struct OrdinalLogLoss : public BaseLoss {
     for (unsigned k = 1; k < km1; k++)
       u[k] = 1 / (1 - exp(x[k] - x[k - 1]));
     for (unsigned i = 0; i < training.size(); ++i) {
-      const SparseVector<float>& fmapx = training[i].x;
+      const FrozenFeatureMap& fmapx = training[i].x;
       const unsigned level = training[i].y.label;
       const double dotprod = DotProduct(fmapx, x);
       const double pj = LevelProb(dotprod, x, level);
@@ -361,7 +400,7 @@ struct OrdinalLogLoss : public BaseLoss {
       if (level < km1)
         g[level] -= - u[level] + pjp1;
       double scale = (1 - pj - pjp1);
-      for (SparseVector<float>::const_iterator it = fmapx.begin();
+      for (FrozenFeatureMap::const_iterator it = fmapx.begin();
           it != fmapx.end(); ++it)
         g[km1 + it->first] -= it->second * scale;
     }
@@ -369,8 +408,8 @@ struct OrdinalLogLoss : public BaseLoss {
     return cll + reg;
   }
 
-  unsigned Predict(const SparseVector<float>& fx,
-                   const vector<double>& w) const {
+  template <class FeatureMapType>
+  unsigned Predict(const FeatureMapType& fx, const vector<double>& w) const {
     const double dotprod = DotProduct(fx, w);
     for (unsigned k = 0; k < K; k++)
       if (dotprod < w[k]) return k;
@@ -439,6 +478,7 @@ int main(int argc, char** argv) {
   string line;
   double l1 = conf["l1"].as<double>();
   double l2 = conf["l2"].as<double>();
+  double temp = conf["temperature"].as<double>();
   const unsigned memory_buffers = conf["memory_buffers"].as<unsigned>();
   const double epsilon = conf["epsilon"].as<double>();
   const double delta = conf["delta"].as<double>();
@@ -465,11 +505,20 @@ int main(int argc, char** argv) {
   const string yfile = conf["training_responses"].as<string>();
   vector<string> labels; // only populated for non-continuous models
   vector<TrainingInstance> training, test;
-  ReadLabeledInstances(xfile, yfile, resptype, &training, &labels);
+  FeatureMapStorage fms;
+  ReadLabeledInstances(xfile, yfile, resptype, &fms, &training, &labels);
+
   if (conf.count("test_features")) {
+    std::cerr << "THE OPTION --test_features IS DEPRECATED USE --tx AND --ty INSTEAD\n";
     const string txfile = conf["test_features"].as<string>();
     const string tyfile = conf["test_responses"].as<string>();
-    ReadLabeledInstances(txfile, tyfile, resptype, &test, &labels);
+    ReadLabeledInstances(txfile, tyfile, resptype, &fms, &test, &labels);
+  }
+
+  if (conf.count("tx")) {
+    const string txfile = conf["tx"].as<string>();
+    const string tyfile = conf["ty"].as<string>();
+    ReadLabeledInstances(txfile, tyfile, resptype, &fms, &test, &labels);
   }
 
   if (conf.count("weights")) {
@@ -528,7 +577,7 @@ int main(int argc, char** argv) {
     cerr << "           Number of labels: " << labels.size() << endl;
     const unsigned K = labels.size();
     const unsigned km1 = K - 1;
-    MulticlassLogLoss loss(training, K, p, l2);
+    MulticlassLogLoss loss(training, K, p, l2, temp);
     LearnParameters(loss, l1, km1, memory_buffers, epsilon, delta, &weights);
 
     if (test.size())
