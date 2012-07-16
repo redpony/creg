@@ -1,3 +1,4 @@
+
 creg
 ====
 
@@ -6,6 +7,7 @@ Fast regression modeling framework.
 Building
 --------
 You wil need:
+
 * A C++ compiler (g++)
 * The [boost libraries](http://www.boost.org) installed somewhere
 
@@ -36,3 +38,12 @@ Ordinal regression example (training and testing)
     -t test_data/shuttle.testfeat -s test_data/shuttle.testresp > weights.txt
 
 Note: for ordinal regression, labels have to be consecutive and start from 0 (e.g. 0/1/2 for 3 labels).
+
+Python module
+-------------
+
+Quick install: 
+
+    pip install -e git+https://github.com/redpony/creg.git#egg=creg
+
+Some documentation is available [on the wiki](https://github.com/redpony/creg/wiki/Python-module).
