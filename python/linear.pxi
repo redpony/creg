@@ -19,11 +19,10 @@ cdef class LinearRegressionWeights(Weights):
         yield BIAS, self.model.weight_vector[0][0]
         cdef double fval
         cdef unsigned f
-        cdef const_char_ptr fname
         for f in range(1, num_features()):
             fval = self.model.weight_vector[0][1+f]
-            fname = Convert(f).c_str()
-            yield fname.decode('utf8'), fval
+            fname = unicode(Convert(f).c_str(), 'utf8')
+            yield fname, fval
 
     def __getitem__(self, fname):
         cdef unsigned u = (0 if fname == BIAS else 1+Convert(<char*> fname))
@@ -54,12 +53,11 @@ cdef class LinearRegression(Model):
         LearnParameters(self.loss[0], l1, 1, memory_buffers,
             epsilon, delta, self.weight_vector)
 
-    def predict(self, features):
+    def predict(self, RealvaluedDataset test):
         assert (self.loss != NULL)
-        cdef SparseVector[float]* fx = fvector(features)
-        cdef double y = self.loss.Predict(fx[0], self.weight_vector[0])
-        del fx
-        return y
+        cdef unsigned i
+        for i in range(test.instances.size()):
+            yield self.loss.Predict(test.instances[0][i].x, self.weight_vector[0])
 
     def evaluate(self, RealvaluedDataset data):
         """ Returns RMSE of the predictions for the dataset"""
@@ -72,8 +70,7 @@ cdef class LinearRegression(Model):
         self.weight_vector.resize(1 + num_features, 0.0)
         cdef unsigned u
         for fname, fval in weights.iteritems():
-            fname = fname.encode('utf8')
-            u = (0 if fname == BIAS else 1+Convert(<char*> fname))
+            u = (0 if fname == BIAS else 1+Convert(as_str(fname)))
             self.weight_vector[0][u] = fval
         Freeze()
         cdef vector[TrainingInstance] instances

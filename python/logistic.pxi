@@ -20,6 +20,9 @@ cdef class CategoricalDataset(Dataset):
             self.labels.append(response)
         return label
 
+    def get_response(self, label):
+        return self.labels[label]
+
 
 cdef class LogisticRegression(Model):
 
@@ -35,7 +38,6 @@ cdef class LogisticRegression(Model):
             assert (self.weight_vector.size() > 0)
             ret_weights = {}
             cdef double w
-            cdef const_char_ptr fname
             cdef unsigned y, f
             cdef unsigned K = len(self.data.labels)
             for y in range(K-1):
@@ -43,8 +45,8 @@ cdef class LogisticRegression(Model):
                 ret_weights[label] = {BIAS: self.weight_vector[0][y]}
                 for f in range(1, num_features()):
                     w = self.weight_vector[0][(K-1) + y * num_features() + f]
-                    fname = Convert(f).c_str()
-                    ret_weights[label][fname.decode('utf8')] = w
+                    fname = unicode(Convert(f).c_str(), 'utf8')
+                    ret_weights[label][fname] = w
             return ret_weights
 
     def fit(self, CategoricalDataset data,
@@ -60,12 +62,13 @@ cdef class LogisticRegression(Model):
         LearnParameters(self.loss[0], l1, K-1, memory_buffers,
             epsilon, delta, self.weight_vector)
 
-    def predict(self, features):
+    def predict(self, CategoricalDataset test):
         assert (self.loss != NULL)
-        cdef SparseVector[float]* fx = fvector(features)
-        cdef unsigned y = self.loss.Predict(fx[0], self.weight_vector[0])
-        del fx
-        return self.data.labels[y]
+        cdef unsigned y
+        cdef unsigned i
+        for i in range(test.instances.size()):
+            y = self.loss.Predict(test.instances[0][i].x, self.weight_vector[0])
+            yield self.data.labels[y]
 
     def evaluate(self, CategoricalDataset data):
         """ Returns accuracy of the predictions for the dataset"""
@@ -90,8 +93,7 @@ cdef class LogisticRegression(Model):
                 if fname == BIAS:
                     u = y
                 else:
-                    fname = fname.encode('utf8')
-                    f = Convert(<char*> fname)
+                    f = Convert(as_str(fname))
                     assert (f < num_features)
                     u = (K-1) + y * num_features + f
                 self.weight_vector[0][u] = fval

@@ -18,6 +18,9 @@ cdef class OrdinalDataset(Dataset):
         self.levels.add(level)
         return level
 
+    def get_response(self, label):
+        return label
+
 
 cdef class OrdinalRegressionWeights(Weights):
     
@@ -32,15 +35,15 @@ cdef class OrdinalRegressionWeights(Weights):
 
     def __iter__(self):
         cdef unsigned K = len(self.model.data.levels)
+        cdef unsigned k
         for k in range(1, K):
             yield Intercept(k), self.model.weight_vector[0][k-1]
         cdef double fval
         cdef unsigned f
-        cdef const_char_ptr fname
         for f in range(1, num_features()):
             fval = self.model.weight_vector[0][K-1+f]
-            fname = Convert(f).c_str()
-            yield fname.decode('utf8'), fval
+            fname = unicode(Convert(f).c_str(), 'utf8')
+            yield fname, fval
 
     def __getitem__(self, fname):
         cdef unsigned K = len(self.model.data.levels)
@@ -68,6 +71,7 @@ cdef class OrdinalRegression(Model):
             double epsilon=1e-4, double delta=0):
         self.data = data
         cdef unsigned K = len(data.levels)
+        cdef unsigned k
         if self.loss == NULL:
             self.weight_vector.resize(K - 1 + num_features(), 0.0)
             for k in range(K-1):
@@ -78,12 +82,11 @@ cdef class OrdinalRegression(Model):
         LearnParameters(self.loss[0], l1, K-1, memory_buffers,
             epsilon, delta, self.weight_vector)
 
-    def predict(self, features):
+    def predict(self, OrdinalDataset test):
         assert (self.loss != NULL)
-        cdef SparseVector[float]* fx = fvector(features)
-        cdef double y = self.loss.Predict(fx[0], self.weight_vector[0])
-        del fx
-        return y
+        cdef unsigned i
+        for i in range(test.instances.size()):
+            yield self.loss.Predict(test.instances[0][i].x, self.weight_vector[0])
 
     def evaluate(self, OrdinalDataset data):
         """ Returns accuracy of the predictions for the dataset"""
