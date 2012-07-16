@@ -17,6 +17,5 @@ ext_modules = [
 setup(
     name='creg',
     ext_modules=ext_modules,
-    package_dir={'creg': 'python'},
     packages=['creg']
 )
