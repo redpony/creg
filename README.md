@@ -1,4 +1,3 @@
-
 creg
 ====
 
@@ -11,9 +10,8 @@ You wil need:
 * A C++ compiler (g++)
 * The [boost libraries](http://www.boost.org) installed somewhere
 
-Instructions:
+Run the `./bjam` command in the root source directory.
 
-1. Type `./bjam`
 
 Examples
 --------
@@ -37,7 +35,28 @@ Ordinal regression example (training and testing)
 	$ ./dist/bin/creg -o -x test_data/shuttle.trainfeat -y test_data/shuttle.trainresp \
     -t test_data/shuttle.testfeat -s test_data/shuttle.testresp > weights.txt
 
-Note: for ordinal regression, labels have to be consecutive and start from 0 (e.g. 0/1/2 for 3 labels).
+Note: for ordinal regression, labels have to be consecutive and start from 0 (e.g., 0/1/2 for 3 labels).
+
+Data format
+-----------
+
+Training and evaluation data are expected to be in the following format:
+
+* A feature file containing lines of the form:
+
+    	id1\t{"feature1": 1.0, "feature2": -10}
+    	id2\t{"feature2": 10,  "feature3": 2.53}
+
+	where the JSON-like map defines a sparse feature vector for each instance
+
+* A response file containing the same number of lines of the form:	
+
+    	id1\t10.1
+    	id2\t4.3
+
+	where the response is numeric for linear and ordinal regression and a label for logistic regression
+
+You will find example files for each type of model in the [test\_data](https://github.com/redpony/creg/tree/master/test_data) directory.
 
 Python module
 -------------
