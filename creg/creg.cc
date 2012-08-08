@@ -26,6 +26,7 @@ void InitCommandLine(int argc, char** argv, po::variables_map* conf) {
         ("training_responses,y", po::value<string>(), "File containing training instance responses")
         ("tx", po::value<string>(), "File containing test instance features")
         ("ty", po::value<string>(), "File containing test instance responses")
+        ("multiclass_test_probability_threshold,P", po::value<double>()->default_value(0.0), "When evaluating a multiclass model, only compute the accuracy on instances where the predicted class posterior probability is > P")
         ("linear,n", "Linear (rather than logistic) regression")
         ("ordinal,o", "Ordinal regression (proportional odds)")
         ("l1",po::value<double>()->default_value(0.0), "l_1 regularization strength")
@@ -325,26 +326,36 @@ struct MulticlassLogLoss : public BaseLoss {
   }
 
   template <class FeatureMapType>
-  unsigned Predict(const FeatureMapType& fx, const vector<double>& w) const {
+  pair<unsigned, double> Predict(const FeatureMapType& fx, const vector<double>& w) const {
     vector<double> dotprods(K - 1);  // K-1 degrees of freedom
     ComputeDotProducts(fx, w, &dotprods);
+    prob_t z = prob_t::One();
+    for (unsigned j = 0; j < dotprods.size(); ++j)
+      z += prob_t(dotprods[j], init_lnx());
     double best = 0;
     unsigned besty = dotprods.size();
     for (unsigned y = 0; y < dotprods.size(); ++y)
       if (dotprods[y] > best) { best = dotprods[y]; besty = y; }
-    return besty;
+    prob_t p = prob_t(best, init_lnx()) / z;
+    return make_pair(besty, p.as_float());
   }
 
   double Evaluate(const vector<TrainingInstance>& test,
-                  const vector<double>& w) const {
+                  const vector<double>& w,
+                  double thresh_p) const {
     double correct = 0;
+    unsigned examples = 0;
     for (unsigned i = 0; i < test.size(); ++i) {
-      const unsigned predy = Predict(test[i].x, w);
+      const pair<unsigned, double> pred = Predict(test[i].x, w);
+      const unsigned predy = pred.first;
       const unsigned refy = test[i].y.label;
-      //cerr << "line=" << (i+1) << " true=" << labels[refy] << " pred=" << labels[besty] << endl;
-      if (refy == predy) { ++correct; }
+      // cerr << "line=" << (i+1) << " true=" << refy << " pred=" << predy << "  p(y|x) = " << pred.second << endl;
+      if (pred.second >= thresh_p) {
+        ++examples;
+        if (refy == predy) ++correct;
+      }
     }
-    return correct / test.size();
+    return correct / examples;
   }
 
   template <class FeatureMapType>
@@ -482,6 +493,7 @@ int main(int argc, char** argv) {
   const unsigned memory_buffers = conf["memory_buffers"].as<unsigned>();
   const double epsilon = conf["epsilon"].as<double>();
   const double delta = conf["delta"].as<double>();
+  const double p_thresh = conf["multiclass_test_probability_threshold"].as<double>();
   if (l1 < 0.0) {
     cerr << "L1 strength must be >= 0\n";
     return 1;
@@ -489,6 +501,10 @@ int main(int argc, char** argv) {
   if (l2 < 0.0) {
     cerr << "L2 strength must be >= 0\n";
     return 2;
+  }
+  if (p_thresh < 0.0 || p_thresh > 1.0) {
+    cerr << "--multiclass_test_probability_threshold must be between 0 and 1\n";
+    return 3;
   }
 
   RegressionType resptype = kLOGISTIC;
@@ -581,7 +597,7 @@ int main(int argc, char** argv) {
     LearnParameters(loss, l1, km1, memory_buffers, epsilon, delta, &weights);
 
     if (test.size())
-      cerr << "Held-out accuracy: " << loss.Evaluate(test, weights) << endl;
+      cerr << "Held-out accuracy: " << loss.Evaluate(test, weights, p_thresh) << endl;
 
     cout << p << "\t***CATEGORICAL***";
     for (unsigned y = 0; y < K; ++y)
