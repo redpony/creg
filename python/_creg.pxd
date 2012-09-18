@@ -40,8 +40,8 @@ cdef extern from "creg/creg.cc":
           unsigned numfeats,
           double l2) # double t = 0.0
 
-        unsigned Predict(FrozenFeatureMap& fx, vector[double]& w)
-        double Evaluate(vector[TrainingInstance]& test, vector[double]& w)
+        pair[unsigned, double] Predict(FrozenFeatureMap& fx, vector[double]& w)
+        double Evaluate(vector[TrainingInstance]& test, vector[double]& w, double thresh_p)
 
     cdef cppclass OrdinalLogLoss(BaseLoss):
         OrdinalLogLoss(

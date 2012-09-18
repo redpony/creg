@@ -67,13 +67,21 @@ cdef class LogisticRegression(Model):
         cdef unsigned y
         cdef unsigned i
         for i in range(test.instances.size()):
-            y = self.loss.Predict(test.instances[0][i].x, self.weight_vector[0])
+            y = self.loss.Predict(test.instances[0][i].x, self.weight_vector[0]).first
             yield self.data.labels[y]
 
-    def evaluate(self, CategoricalDataset data):
+    def full_predict(self, CategoricalDataset test):
+        assert (self.loss != NULL)
+        cdef pair[unsigned, double] pred
+        cdef unsigned i
+        for i in range(test.instances.size()):
+            pred = self.loss.Predict(test.instances[0][i].x, self.weight_vector[0])
+            yield self.data.labels[pred.first], pred.second
+
+    def evaluate(self, CategoricalDataset data, double thresh_p=0):
         """ Returns accuracy of the predictions for the dataset"""
         assert (self.loss != NULL)
-        return self.loss.Evaluate(data.instances[0], self.weight_vector[0])
+        return self.loss.Evaluate(data.instances[0], self.weight_vector[0], thresh_p)
 
     def _load(self, labels, unsigned num_features, weights):
         assert (self.loss == NULL)
