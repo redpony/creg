@@ -522,7 +522,6 @@ char *yytext;
 
 #include "json_feature_map_lexer.h"
 #include "fdict.h"
-#include "fast_sparse_vector.h"
 
 #define YY_DECL int json_fmap_yylex (void)
 #undef YY_INPUT

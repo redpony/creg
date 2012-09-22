@@ -22,17 +22,19 @@ namespace po = boost::program_options;
 void InitCommandLine(int argc, char** argv, po::variables_map* conf) {
   po::options_description opts("Configuration options");
   opts.add_options()
+        ("linear,n", "Linear regression (default is multiclass logistic regression)")
+        ("ordinal,o", "Ordinal regression (proportional odds)")
         ("training_features,x", po::value<string>(), "File containing training instance features")
         ("training_responses,y", po::value<string>(), "File containing training instance responses")
-        ("tx", po::value<string>(), "File containing test instance features")
-        ("ty", po::value<string>(), "File containing test instance responses")
+        ("tx", po::value<string>(), "File containing test instance features (optional)")
+        ("ty", po::value<string>(), "File containing test instance responses (optional)")
+        ("write_test_predictions,p", "Write model prediction for each test instance")
+        ("write_test_distribution,D", "Write posterior distribution of outputs for each test instance (categorical models only)")
         ("multiclass_test_probability_threshold,P", po::value<double>()->default_value(0.0), "When evaluating a multiclass model, only compute the accuracy on instances where the predicted class posterior probability is > P")
-        ("linear,n", "Linear (rather than logistic) regression")
-        ("ordinal,o", "Ordinal regression (proportional odds)")
         ("l1",po::value<double>()->default_value(0.0), "l_1 regularization strength")
         ("l2",po::value<double>()->default_value(1e-10), "l_2 regularization strength")
         ("temperature,T",po::value<double>()->default_value(0), "Temperature for entropy regularization (> 0 flattens, < 0 sharpens; = 0 no effect)")
-        ("weights,w", po::value<string>(), "Initial weights")
+        ("weights,w", po::value<string>(), "Initial weights file")
         ("epsilon,e", po::value<double>()->default_value(1e-4), "Epsilon for convergence test. Terminates when ||g|| < epsilon * max(1, ||w||)")
         ("delta,d", po::value<double>()->default_value(0), "Delta for convergence test. Terminates when (f' - f) / f < delta")
         ("memory_buffers,m",po::value<unsigned>()->default_value(40), "Number of memory buffers for LBFGS")
@@ -59,12 +61,14 @@ struct TrainingInstance {
 };
 
 struct ReaderHelper {
-  explicit ReaderHelper(FeatureMapStorage* pfms, vector<TrainingInstance>* xyp) : fms(pfms), xy_pairs(xyp), lc(), flag() {}
+  explicit ReaderHelper(FeatureMapStorage* pfms, vector<TrainingInstance>* xyp, bool h, vector<string>* iids) : fms(pfms), xy_pairs(xyp), lc(), flag(), has_labels(h), ids(iids) {}
   unordered_map<string, unsigned> id2ind;
   FeatureMapStorage* fms;
   vector<TrainingInstance>* xy_pairs;
   int lc;
   bool flag;
+  bool has_labels;
+  vector<string>* ids;
 };
 
 void ReaderCB(const string& id,
@@ -73,14 +77,22 @@ void ReaderCB(const string& id,
               void* extra) {
   ReaderHelper& rh = *reinterpret_cast<ReaderHelper*>(extra);
   ++rh.lc;
-  if (rh.lc % 1000 == 0) { cerr << '.'; rh.flag = true; }
-  if (rh.lc % 40000 == 0) { cerr << " [" << rh.lc << "]\n"; rh.flag = false; }
-  const unordered_map<string, unsigned>::iterator it = rh.id2ind.find(id);
-  if (it == rh.id2ind.end()) {
-    cerr << "Unlabeled example in line " << rh.lc << " (key=" << id << ')' << endl;
-    abort();
+  if (rh.lc % 1000  == 0) { cerr << '.'; rh.flag = true; }
+  if (rh.lc % 50000 == 0) { cerr << " [" << rh.lc << "]\n"; rh.flag = false; }
+  if (rh.ids) rh.ids->push_back(id);
+  if (rh.has_labels) {
+    const unordered_map<string, unsigned>::iterator it = rh.id2ind.find(id);
+    if (it == rh.id2ind.end()) {
+      cerr << "\nUnlabeled example in line " << rh.lc << " (key=" << id << ')' << endl;
+      abort();
+    } else {
+      (*rh.xy_pairs)[it->second - 1].x = rh.fms->AddFeatureMap(begin,end);
+    }
+  } else {
+    TrainingInstance x_no_y;
+    x_no_y.x = rh.fms->AddFeatureMap(begin,end);
+    rh.xy_pairs->push_back(x_no_y);
   }
-  (*rh.xy_pairs)[it->second - 1].x = rh.fms->AddFeatureMap(begin,end);
 }
 
 void ReadLabeledInstances(const string& ffeats,
@@ -88,67 +100,72 @@ void ReadLabeledInstances(const string& ffeats,
                           const RegressionType resptype,
                           FeatureMapStorage* fms,
                           vector<TrainingInstance>* xy_pairs,
-                          vector<string>* labels) {
+                          vector<string>* labels,
+                          vector<string>* instance_ids = NULL) {
   bool flag = false;
   xy_pairs->clear();
   int lc = 0;
-  ReaderHelper rh(fms, xy_pairs);
+  ReaderHelper rh(fms, xy_pairs, fresp.size() > 0, instance_ids);
   unordered_map<string, unsigned> label2id;
-  cerr << "Reading responses from " << fresp << " ..." << endl;
-  ReadFile fr(fresp);
-  for (unsigned i = 0; i < labels->size(); ++i)
-    label2id[(*labels)[i]] = i;
-  istream& in = *fr.stream();
-  string line;
-  while(getline(in, line)) {
-    ++lc;
-    if (lc % 1000 == 0) { cerr << '.'; flag = true; }
-    if (lc % 40000 == 0) { cerr << " [" << lc << "]\n"; flag = false; }
-    if (line.size() == 0) continue;
-    if (line[0] == '#') continue;
-    unsigned p = 0;
-    while (p < line.size() && line[p] != ' ' && line[p] != '\t') { ++p; }
-    unsigned& ind = rh.id2ind[line.substr(0, p)];
-    if (ind != 0) { cerr << "ID " << line.substr(0, p) << " duplicated in line " << lc << endl; abort(); }
-    while (p < line.size() && (line[p] == ' ' || line[p] == '\t')) { ++p; }
-    assert(p < line.size());
-    xy_pairs->push_back(TrainingInstance());
-    ind = xy_pairs->size();
-    switch (resptype) {
-      case kLINEAR:
-        xy_pairs->back().y.value = strtof(&line[p], 0);
-        break;
-      case kLOGISTIC:
-        {
-          unordered_map<string, unsigned>::iterator it = label2id.find(line.substr(p));
-          if (it == label2id.end()) {
-            const string label = line.substr(p);
-            it = label2id.insert(make_pair(label, labels->size())).first;
-            labels->push_back(label);
+  if (fresp.size() == 0) {
+    cerr << "No gold standard responses provided for " << ffeats << endl;
+  } else {
+    cerr << "Reading responses from " << fresp << " ..." << endl;
+    ReadFile fr(fresp);
+    for (unsigned i = 0; i < labels->size(); ++i)
+      label2id[(*labels)[i]] = i;
+    istream& in = *fr.stream();
+    string line;
+    while(getline(in, line)) {
+      ++lc;
+      if (lc % 1000 == 0) { cerr << '.'; flag = true; }
+      if (lc % 40000 == 0) { cerr << " [" << lc << "]\n"; flag = false; }
+      if (line.size() == 0) continue;
+      if (line[0] == '#') continue;
+      unsigned p = 0;
+      while (p < line.size() && line[p] != ' ' && line[p] != '\t') { ++p; }
+      unsigned& ind = rh.id2ind[line.substr(0, p)];
+      if (ind != 0) { cerr << "ID " << line.substr(0, p) << " duplicated in line " << lc << endl; abort(); }
+      while (p < line.size() && (line[p] == ' ' || line[p] == '\t')) { ++p; }
+      assert(p < line.size());
+      xy_pairs->push_back(TrainingInstance());
+      ind = xy_pairs->size();
+      switch (resptype) {
+        case kLINEAR:
+          xy_pairs->back().y.value = strtof(&line[p], 0);
+          break;
+        case kLOGISTIC:
+          {
+            unordered_map<string, unsigned>::iterator it = label2id.find(line.substr(p));
+            if (it == label2id.end()) {
+              const string label = line.substr(p);
+              it = label2id.insert(make_pair(label, labels->size())).first;
+              labels->push_back(label);
+            }
+            xy_pairs->back().y.label = it->second;  // label id
           }
-          xy_pairs->back().y.label = it->second;  // label id
-        }
-        break;
-      case kORDINAL:
-        {
-          // TODO allow labels not to be consecutive and start from 0 
-          // requires label re-indexing
-          const unsigned label = strtol(&line[p], 0, 10);
-          xy_pairs->back().y.label = label;
-          if (label >= labels->size()) {
-            labels->resize(label + 1);
+          break;
+        case kORDINAL:
+          {
+            // TODO allow labels not to be consecutive and start from 0 
+            // requires label re-indexing
+            const unsigned label = strtol(&line[p], 0, 10);
+            xy_pairs->back().y.label = label;
+            if (label >= labels->size()) {
+              labels->resize(label + 1);
+            }
+            (*labels)[label] = line.substr(p);
           }
-          (*labels)[label] = line.substr(p);
-        }
-        break;
+          break;
+      }
     }
-  }
-  if (flag) cerr << endl;
-  if (resptype == kLOGISTIC || resptype == kORDINAL) {
-    cerr << "LABELS:";
-    for (unsigned j = 0; j < labels->size(); ++j)
-      cerr << " " << (*labels)[j];
-    cerr << endl;
+    if (flag) cerr << endl;
+    if (resptype == kLOGISTIC || resptype == kORDINAL) {
+      cerr << "LABELS:";
+      for (unsigned j = 0; j < labels->size(); ++j)
+        cerr << " " << (*labels)[j];
+      cerr << endl;
+    }
   }
   cerr << "Reading features from " << ffeats << " ..." << endl;
   ReadFile ff(ffeats);
@@ -255,6 +272,15 @@ struct UnivariateSquaredLoss : public BaseLoss {
   }
 };
 
+// predictions made by multiclass logistic regression for some
+// input x
+//   y_hat is the 1-best prediction
+//   posterior[y] is p(y_hat | x)
+struct MulticlassPrediction {
+  unsigned y_hat;
+  vector<double> posterior;
+};
+
 struct MulticlassLogLoss : public BaseLoss {
 
   // weight vector layout for K classes, with p features
@@ -326,27 +352,40 @@ struct MulticlassLogLoss : public BaseLoss {
   }
 
   template <class FeatureMapType>
-  pair<unsigned, double> Predict(const FeatureMapType& fx, const vector<double>& w) const {
+  pair<unsigned, double> Predict(const FeatureMapType& fx,
+                                 const vector<double>& w,
+                                 MulticlassPrediction* pred = NULL) const {
     vector<double> dotprods(K - 1);  // K-1 degrees of freedom
+    if (pred) pred->posterior.resize(K);
     ComputeDotProducts(fx, w, &dotprods);
-    prob_t z = prob_t::One();
+    prob_t z = prob_t::One();  // exp(0) for k^th class
     for (unsigned j = 0; j < dotprods.size(); ++j)
       z += prob_t(dotprods[j], init_lnx());
+    const double log_z = log(z);
     double best = 0;
     unsigned besty = dotprods.size();
-    for (unsigned y = 0; y < dotprods.size(); ++y)
+    for (unsigned y = 0; y < dotprods.size(); ++y) {
       if (dotprods[y] > best) { best = dotprods[y]; besty = y; }
-    prob_t p = prob_t(best, init_lnx()) / z;
-    return make_pair(besty, p.as_float());
+      if (pred) pred->posterior[y] = exp(dotprods[y] - log_z);
+    }
+    if (pred) {
+      pred->posterior.back() = exp(-log_z);
+      pred->y_hat = besty;
+    }
+    return make_pair(besty, exp(best - log_z));
   }
 
   double Evaluate(const vector<TrainingInstance>& test,
                   const vector<double>& w,
-                  double thresh_p) const {
+                  double thresh_p,
+		  vector<MulticlassPrediction>* preds = NULL) const {
     double correct = 0;
     unsigned examples = 0;
+    if (preds) preds->resize(test.size());
     for (unsigned i = 0; i < test.size(); ++i) {
-      const pair<unsigned, double> pred = Predict(test[i].x, w);
+      MulticlassPrediction* ppred = NULL;
+      if (preds) ppred = &(*preds)[i];
+      const pair<unsigned, double> pred = Predict(test[i].x, w, ppred);
       const unsigned predy = pred.first;
       const unsigned refy = test[i].y.label;
       // cerr << "line=" << (i+1) << " true=" << refy << " pred=" << predy << "  p(y|x) = " << pred.second << endl;
@@ -531,11 +570,16 @@ int main(int argc, char** argv) {
     ReadLabeledInstances(txfile, tyfile, resptype, &fms, &test, &labels);
   }
 
+  bool test_labels = false;
+  vector<string> test_ids;
   if (conf.count("tx")) {
     const string txfile = conf["tx"].as<string>();
-    const string tyfile = conf["ty"].as<string>();
-    ReadLabeledInstances(txfile, tyfile, resptype, &fms, &test, &labels);
+    string tyfile;
+    if (conf.count("ty")) tyfile = conf["ty"].as<string>();
+    test_labels = tyfile.size();
+    ReadLabeledInstances(txfile, tyfile, resptype, &fms, &test, &labels, &test_ids);
   }
+  assert(test_ids.size() == test.size());
 
   if (conf.count("weights")) {
     cerr << "Initial weights are not implemented, please implement." << endl;
@@ -596,8 +640,27 @@ int main(int argc, char** argv) {
     MulticlassLogLoss loss(training, K, p, l2, temp);
     LearnParameters(loss, l1, km1, memory_buffers, epsilon, delta, &weights);
 
-    if (test.size())
-      cerr << "Held-out accuracy: " << loss.Evaluate(test, weights, p_thresh) << endl;
+    if (test.size()) {
+      vector<MulticlassPrediction> predictions;
+      double acc = loss.Evaluate(test, weights, p_thresh, &predictions);
+      if (test_labels) {
+        cerr << "Held-out accuracy: " << acc << endl;
+      }
+      bool dist = conf.count("write_test_distribution");
+      bool pps = conf.count("write_test_predictions");
+      if (!test_labels || dist || pps) {
+        for (unsigned i = 0; i < test.size(); ++i) {
+          cout << test_ids[i] << '\t' << predictions[i].y_hat;
+          if (dist) {
+            cout << "\t{";
+            for (unsigned y = 0; y < K; ++y)
+              cout << (y ? ", " : "") << '"' << labels[y] << "\": " << predictions[i].posterior[y];
+            cout << '}';
+          }
+          cout << endl;
+        }
+      }
+    }
 
     cout << p << "\t***CATEGORICAL***";
     for (unsigned y = 0; y < K; ++y)

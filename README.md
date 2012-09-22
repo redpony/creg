@@ -23,12 +23,12 @@ Logistic regression example (training only):
 Logistic regression example (training and testing):
 
 	$ ./dist/bin/creg -x test_data/iris.trainfeat -y test_data/iris.trainresp --l1 1.0 \
-	     -t test_data/iris.testfeat -s test_data/iris.testresp > weights.txt
+	     --tx test_data/iris.testfeat --ty test_data/iris.testresp > weights.txt
 
 Linear regression example (training and testing):
 
 	$ ./dist/bin/creg -n -x test_data/auto-mpg.trainfeat -y test_data/auto-mpg.trainresp --l2 1000 \
-	     -t test_data/auto-mpg.testfeat -s test_data/auto-mpg.testresp > weights.txt
+	     --tx test_data/auto-mpg.testfeat --ty test_data/auto-mpg.testresp > weights.txt
 
 Ordinal regression example (training and testing)
 
