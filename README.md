@@ -25,6 +25,11 @@ Logistic regression example (training and testing):
 	$ ./dist/bin/creg -x test_data/iris.trainfeat -y test_data/iris.trainresp --l1 1.0 \
 	     --tx test_data/iris.testfeat --ty test_data/iris.testresp > weights.txt
 
+Logistic regression example (training and prediction):
+	$ ./dist/bin/creg -x test_data/iris.trainfeat -y test_data/iris.trainresp --l1 1.0 \
+	    --tx test_data/iris.testfeat -W -D
+*The `-W` option in preceeding example supresses writing the learned weights and the `-D` option causes the full posterior distribution over predicted labels to be written.*
+
 Linear regression example (training and testing):
 
 	$ ./dist/bin/creg -n -x test_data/auto-mpg.trainfeat -y test_data/auto-mpg.trainresp --l2 1000 \

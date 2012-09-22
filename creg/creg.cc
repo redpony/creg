@@ -30,6 +30,7 @@ void InitCommandLine(int argc, char** argv, po::variables_map* conf) {
         ("ty", po::value<string>(), "File containing test instance responses (optional)")
         ("write_test_predictions,p", "Write model prediction for each test instance")
         ("write_test_distribution,D", "Write posterior distribution of outputs for each test instance (categorical models only)")
+        ("dont_write_weights,W", "Supress writing learned weights")
         ("multiclass_test_probability_threshold,P", po::value<double>()->default_value(0.0), "When evaluating a multiclass model, only compute the accuracy on instances where the predicted class posterior probability is > P")
         ("l1",po::value<double>()->default_value(0.0), "l_1 regularization strength")
         ("l2",po::value<double>()->default_value(1e-10), "l_2 regularization strength")
@@ -592,6 +593,7 @@ int main(int argc, char** argv) {
   cerr << "Number of training examples: " << training.size() << endl;
   const unsigned p = FD::NumFeats();
   cout.precision(15);
+  bool dont_write_weights = conf.count("dont_write_weights");
 
   if (conf.count("linear")) {  // linear regression
     vector<double> weights(1 + p, 0.0);
@@ -602,12 +604,14 @@ int main(int argc, char** argv) {
     if (test.size())
       cerr << "Held-out RMSE: " << loss.Evaluate(test, weights) << endl;
 
-    cout << p << "\t***CONTINUOUS***" << endl;
-    cout << "***BIAS***\t" << weights[0] << endl;
-    for (unsigned f = 0; f < p; ++f) {
-      const double w = weights[1 + f];
-      if (w)
-        cout << FD::Convert(f) << "\t" << w << endl;
+    if (!dont_write_weights) {
+      cout << p << "\t***CONTINUOUS***" << endl;
+      cout << "***BIAS***\t" << weights[0] << endl;
+      for (unsigned f = 0; f < p; ++f) {
+        const double w = weights[1 + f];
+        if (w)
+          cout << FD::Convert(f) << "\t" << w << endl;
+      }
     }
   } else if (conf.count("ordinal")) {
     const unsigned K = labels.size();
@@ -621,15 +625,17 @@ int main(int argc, char** argv) {
     if (test.size())
       cerr << "Held-out accuracy: " << loss.Evaluate(test, weights) << endl;
 
-    cout << p << "\t***ORDINAL***";
-    for (unsigned y = 0; y < K; ++y)
-      cout << '\t' << labels[y];
-    cout << endl;
-    for (unsigned y = 0; y < km1; ++y)
-      cout << "y>=" << labels[y+1] << "\t" << weights[y] << endl;
-    for (unsigned f = 0; f < p; ++f) {
-      const double w = weights[km1 + f];
-      if (w) cout << FD::Convert(f) << "\t" << w << endl;
+    if (!dont_write_weights) {
+      cout << p << "\t***ORDINAL***";
+      for (unsigned y = 0; y < K; ++y)
+        cout << '\t' << labels[y];
+      cout << endl;
+      for (unsigned y = 0; y < km1; ++y)
+        cout << "y>=" << labels[y+1] << "\t" << weights[y] << endl;
+      for (unsigned f = 0; f < p; ++f) {
+        const double w = weights[km1 + f];
+        if (w) cout << FD::Convert(f) << "\t" << w << endl;
+      }
     }
   } else {                     // logistic regression
     vector<double> weights((1 + FD::NumFeats()) * (labels.size() - 1), 0.0);
@@ -662,17 +668,19 @@ int main(int argc, char** argv) {
       }
     }
 
-    cout << p << "\t***CATEGORICAL***";
-    for (unsigned y = 0; y < K; ++y)
-      cout << '\t' << labels[y];
-    cout << endl;
-    for (unsigned y = 0; y < km1; ++y)
-      cout << labels[y] << "\t***BIAS***\t" << weights[y] << endl;
-    for (unsigned y = 0; y < km1; ++y) {
-      for (unsigned f = 0; f < p; ++f) {
-        const double w = weights[km1 + y * p + f];
-        if (w)
-          cout << labels[y] << "\t" << FD::Convert(f) << "\t" << w << endl;
+    if (!dont_write_weights) {
+      cout << p << "\t***CATEGORICAL***";
+      for (unsigned y = 0; y < K; ++y)
+        cout << '\t' << labels[y];
+      cout << endl;
+      for (unsigned y = 0; y < km1; ++y)
+        cout << labels[y] << "\t***BIAS***\t" << weights[y] << endl;
+      for (unsigned y = 0; y < km1; ++y) {
+        for (unsigned f = 0; f < p; ++f) {
+          const double w = weights[km1 + y * p + f];
+          if (w)
+            cout << labels[y] << "\t" << FD::Convert(f) << "\t" << w << endl;
+        }
       }
     }
   }
