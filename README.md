@@ -18,29 +18,28 @@ Examples
 
 Logistic regression example (training only):
 
-	$ ./dist/bin/creg -x test_data/iris.trainfeat -y test_data/iris.trainresp --l1 1.0 > weights.txt
+	./dist/bin/creg -x test_data/iris.trainfeat -y test_data/iris.trainresp --l1 1.0 > weights.txt
 
 Logistic regression example (training and testing):
 
-	$ ./dist/bin/creg -x test_data/iris.trainfeat -y test_data/iris.trainresp --l1 1.0 \
+	./dist/bin/creg -x test_data/iris.trainfeat -y test_data/iris.trainresp --l1 1.0 \
 	     --tx test_data/iris.testfeat --ty test_data/iris.testresp > weights.txt
 
 Logistic regression example (training and prediction):
 
-	$ ./dist/bin/creg -x test_data/iris.trainfeat -y test_data/iris.trainresp --l1 1.0 \
-	    --tx test_data/iris.testfeat -W -D
+	./dist/bin/creg -x test_data/iris.trainfeat -y test_data/iris.trainresp --l1 1.0 --tx test_data/iris.testfeat -W -D
 
 *The `-W` option in preceeding example supresses writing the learned weights and the `-D` option causes the full posterior distribution over predicted labels to be written.*
 
 Linear regression example (training and testing):
 
-	$ ./dist/bin/creg -n -x test_data/auto-mpg.trainfeat -y test_data/auto-mpg.trainresp --l2 1000 \
+	./dist/bin/creg -n -x test_data/auto-mpg.trainfeat -y test_data/auto-mpg.trainresp --l2 1000 \
 	     --tx test_data/auto-mpg.testfeat --ty test_data/auto-mpg.testresp > weights.txt
 
 Ordinal regression example (training and testing)
 
-	$ ./dist/bin/creg -o -x test_data/shuttle.trainfeat -y test_data/shuttle.trainresp \
-    -t test_data/shuttle.testfeat -s test_data/shuttle.testresp > weights.txt
+	./dist/bin/creg -o -x test_data/shuttle.trainfeat -y test_data/shuttle.trainresp \
+	    -t test_data/shuttle.testfeat -s test_data/shuttle.testresp > weights.txt
 
 Note: for ordinal regression, labels have to be consecutive and start from 0 (e.g., 0/1/2 for 3 labels).
 
