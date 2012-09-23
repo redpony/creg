@@ -258,11 +258,14 @@ struct UnivariateSquaredLoss : public BaseLoss {
 
   // return RMSE
   double Evaluate(const vector<TrainingInstance>& test,
-                  const vector<double>& w) const {
+                  const vector<double>& w,
+                  vector<float>* preds = NULL) const {
     vector<double> dotprods(1);  // K-1 degrees of freedom
     double mse = 0;
+    if (preds) preds->resize(test.size());
     for (unsigned i = 0; i < test.size(); ++i) {
       const double predy = Predict(test[i].x, w);
+      if (preds) (*preds)[i] = predy;
       const double refy = test[i].y.value;
       const double diff = predy - refy;
       //cerr << "line=" << (i+1) << " true=" << refy << " pred=" << predy << endl;
@@ -467,19 +470,32 @@ struct OrdinalLogLoss : public BaseLoss {
     return K-1;
   }
 
+  template <class FeatureMapType>
+  unsigned Predict(const FeatureMapType& fx, const vector<double>& w, MulticlassPrediction* pred) const {
+    const double dotprod = DotProduct(fx, w);
+    pred->posterior.resize(K);
+    double bestp = -1;
+    unsigned besty = 0;
+    for (unsigned k = 0; k < K; ++k) {
+      double p = exp(LogDeltaProb(dotprod, w, k));
+      pred->posterior[k] = p;
+      if (p > bestp) { bestp = p; besty = k; }
+    }
+    pred->y_hat = besty;
+    return besty;
+  }
+
   double Evaluate(const vector<TrainingInstance>& test,
-                  const vector<double>& w) const {
+                  const vector<double>& w,
+                  vector<MulticlassPrediction>* predictions = NULL) const {
     double correct = 0;
+    if (predictions) predictions->resize(test.size());
+    MulticlassPrediction dummy;
     for (unsigned i = 0; i < test.size(); ++i) {
-      const unsigned predy = Predict(test[i].x, w);
+      MulticlassPrediction* pred = predictions ? &(*predictions)[i] : &dummy;
+      const unsigned predy = Predict(test[i].x, w, pred);
       const unsigned refy = test[i].y.label;
       if (refy == predy) correct++;
-      /*
-         double probpred = LevelProb(dotprod, w, y) - LevelProb(dotprod, w, y+1);
-         double probtrue = LevelProb(dotprod, w, level) - LevelProb(dotprod, w, level+1);
-         cerr << "line=" << (i+1) << " true=" << level << " pred=" << y
-         << " prob_pred=" << probpred << " prob_true=" << probtrue << endl;
-      */
     }
     return correct / test.size();
   }
@@ -594,6 +610,8 @@ int main(int argc, char** argv) {
   const unsigned p = FD::NumFeats();
   cout.precision(15);
   bool dont_write_weights = conf.count("dont_write_weights");
+  bool write_dist = conf.count("write_test_distribution");
+  bool write_pps = conf.count("write_test_predictions");
 
   if (conf.count("linear")) {  // linear regression
     vector<double> weights(1 + p, 0.0);
@@ -601,8 +619,17 @@ int main(int argc, char** argv) {
     UnivariateSquaredLoss loss(training, p, l2);
     LearnParameters(loss, l1, 1, memory_buffers, epsilon, delta, &weights);
 
-    if (test.size())
-      cerr << "Held-out RMSE: " << loss.Evaluate(test, weights) << endl;
+    if (test.size()) {
+      vector<float> preds;
+      double rmse = loss.Evaluate(test, weights, &preds);
+      if (test_labels) {
+        cerr << "Held-out RMSE: " << rmse << endl;
+      }
+      if (!test_labels || write_pps) {
+        for (unsigned i = 0; i < test.size(); ++i)
+          cout << test_ids[i] << "\t" << preds[i] << endl;
+      }
+    }
 
     if (!dont_write_weights) {
       cout << p << "\t***CONTINUOUS***" << endl;
@@ -622,8 +649,25 @@ int main(int argc, char** argv) {
     OrdinalLogLoss loss(training, K, p, l2);
     LearnParameters(loss, l1, km1, memory_buffers, epsilon, delta, &weights);
 
-    if (test.size())
-      cerr << "Held-out accuracy: " << loss.Evaluate(test, weights) << endl;
+    if (test.size()) {
+      vector<MulticlassPrediction> predictions;
+      double acc = loss.Evaluate(test, weights, &predictions);
+      if (test_labels) {
+        cerr << "Held-out accuracy: " << acc << endl;
+      }
+      if (!test_labels || write_dist || write_pps) {
+        for (unsigned i = 0; i < test.size(); ++i) {
+          cout << test_ids[i] << '\t' << predictions[i].y_hat;
+          if (write_dist) {
+            cout << "\t{";
+            for (unsigned y = 0; y < K; ++y)
+              cout << (y ? ", " : "") << '"' << labels[y] << "\": " << predictions[i].posterior[y];
+            cout << '}';
+          }
+          cout << endl;
+        }
+      }
+    }
 
     if (!dont_write_weights) {
       cout << p << "\t***ORDINAL***";
@@ -652,12 +696,10 @@ int main(int argc, char** argv) {
       if (test_labels) {
         cerr << "Held-out accuracy: " << acc << endl;
       }
-      bool dist = conf.count("write_test_distribution");
-      bool pps = conf.count("write_test_predictions");
-      if (!test_labels || dist || pps) {
+      if (!test_labels || write_dist || write_pps) {
         for (unsigned i = 0; i < test.size(); ++i) {
           cout << test_ids[i] << '\t' << predictions[i].y_hat;
-          if (dist) {
+          if (write_dist) {
             cout << "\t{";
             for (unsigned y = 0; y < K; ++y)
               cout << (y ? ", " : "") << '"' << labels[y] << "\": " << predictions[i].posterior[y];
