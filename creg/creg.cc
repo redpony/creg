@@ -698,7 +698,7 @@ int main(int argc, char** argv) {
       }
       if (!test_labels || write_dist || write_pps) {
         for (unsigned i = 0; i < test.size(); ++i) {
-          cout << test_ids[i] << '\t' << predictions[i].y_hat;
+          cout << test_ids[i] << '\t' << labels[predictions[i].y_hat];
           if (write_dist) {
             cout << "\t{";
             for (unsigned y = 0; y < K; ++y)
