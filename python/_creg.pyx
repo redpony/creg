@@ -24,6 +24,15 @@ cdef char* as_str(name):
         return name
     raise TypeError('Cannot convert %s to string.' % type(name))
 
+cdef vector[pair[int, float]]* feature_vector(fmap):
+    cdef vector[pair[int, float]]* fvector = new vector[pair[int, float]]()
+    cdef pair[int, float]* fpair
+    for key in fmap:
+        fpair = new pair[int, float](Convert(as_str(key)), fmap[key])
+        fvector.push_back(fpair[0])
+        del fpair
+    return fvector
+
 cdef class Dataset:
     cdef vector[TrainingInstance]* instances
     cdef FeatureMapStorage* fms
@@ -41,14 +50,10 @@ cdef class Dataset:
         for features, response in data:
             instance = new TrainingInstance()
             if categorical:
-                instance.y.label = self.get_label(response)
+                instance.y.label = self._get_label(response)
             else:
                 instance.y.value = response
-            featmap = new vector[pair[int, float]]()
-            for fname, fval in features.iteritems():
-                fpair = new pair[int, float](Convert(as_str(fname)), fval)
-                featmap.push_back(fpair[0])
-                del fpair
+            featmap = feature_vector(features)
             front = &featmap.front()
             back = &featmap.back()+1
             instance.x = self.fms.AddFeatureMap(front, back)
@@ -81,7 +86,7 @@ cdef class Dataset:
         if not 0 <= i < len(self):
             raise KeyError('training set index out of range')
         cdef TrainingInstance* instance = &self.instances[0][i]
-        y = self.get_response(instance.y.label) if self.categorical else instance.y.value
+        y = self._get_response(instance.y.label) if self.categorical else instance.y.value
         x = {}
         cdef const_pair_int_float* xptr = instance.x.begin()
         cdef int f
@@ -99,6 +104,9 @@ cdef class Weights:
         return num_features()
 
     def top(self, k):
+        """
+        top(k) -> top k largest weights in absolute value
+        """
         return heapq.nlargest(k, self, key=lambda kv: abs(kv[1]))
 
     property df:

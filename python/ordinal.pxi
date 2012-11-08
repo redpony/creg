@@ -6,19 +6,19 @@ cdef class OrdinalDataset(Dataset):
 
     def __init__(self, data):
         """
-        Dataset with categorical response
+        OrdinalDataset(data) -> dataset with categorical response
         data: iterator of (dict, int) pairs
         """
         self.levels = set()
         super(OrdinalDataset, self).__init__(data, True)
         assert self.levels == set(range(len(self.levels)))
 
-    def get_label(self, response):
+    def _get_label(self, response):
         level = int(response)
         self.levels.add(level)
         return level
 
-    def get_response(self, label):
+    def _get_response(self, label):
         return label
 
 
@@ -69,6 +69,15 @@ cdef class OrdinalRegression(Model):
     def fit(self, OrdinalDataset data,
             double l1=0, double l2=0, unsigned memory_buffers=40,
             double epsilon=1e-4, double delta=0):
+        """
+        fit(OrdinalDataset data, l1=0, l2=0, memory_buffers=40, epsilon=1e-4, delta=0)
+        Fit an ordinal regression model on the training data.
+        l1: L1 regularization strength
+        l2: L2 regularization strength
+        memory_buffers: number of memory buffers for LBFGS
+        epsilon: convergence threshold for termination criterion: ||g|| < epsilon * max(1, ||w||))
+        delta: convergence threshold for termination criterion (f' - f) / f < delta
+        """
         self.data = data
         cdef unsigned K = len(data.levels)
         cdef unsigned k
@@ -82,13 +91,34 @@ cdef class OrdinalRegression(Model):
         LearnParameters(self.loss[0], l1, K-1, memory_buffers,
             epsilon, delta, self.weight_vector)
 
-    def predict(self, OrdinalDataset test):
-        assert (self.loss != NULL)
-        cdef unsigned i
-        for i in range(test.instances.size()):
+    def _predict_dataset(self, OrdinalDataset test):
+        for i in range(len(test)):
             yield self.loss.Predict(test.instances[0][i].x, self.weight_vector[0])
 
+    def _predict_features(self, fmap):
+        cdef vector[pair[int, float]]* test_vector = feature_vector(fmap)
+        cdef double y = self.loss.Predict(test_vector[0], self.weight_vector[0])
+        del test_vector
+        return y
+
+    def predict(self, test):
+        """
+        predict(OrdinalDataset) -> iterator of predictions
+        predict(mapping) -> predicted value
+        """
+        assert (self.loss != NULL)
+        if isinstance(test, OrdinalDataset):
+            return self._predict_dataset(test)
+        elif isinstance(test, collections.Mapping):
+            return self._predict_features(test)
+        else:
+            raise TypeError('test has to be a OrdinalDataset or a mapping')
+
+    # TODO add predict_prob
+
     def evaluate(self, OrdinalDataset data):
-        """ Returns accuracy of the predictions for the dataset"""
+        """
+        evaluate(OrdinalDataset) -> accuracy of the predictions for the dataset
+        """
         assert (self.loss != NULL)
         return self.loss.Evaluate(data.instances[0], self.weight_vector[0])

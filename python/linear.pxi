@@ -2,7 +2,7 @@ cdef class RealvaluedDataset(Dataset):
 
     def __init__(self, data):
         """
-        Dataset with real-valued response
+        RealvaluedDataset(data) -> dataset with real-valued response
         data: iterator of (dict, float) pairs
         """
         super(RealvaluedDataset, self).__init__(data, False)
@@ -45,6 +45,15 @@ cdef class LinearRegression(Model):
     def fit(self, RealvaluedDataset data,
             double l1=0, double l2=0, unsigned memory_buffers=40,
             double epsilon=1e-4, double delta=0):
+        """
+        fit(RealvaluedDataset data, l1=0, l2=0, memory_buffers=40, epsilon=1e-4, delta=0)
+        Fit a linear regression model on the training data.
+        l1: L1 regularization strength
+        l2: L2 regularization strength
+        memory_buffers: number of memory buffers for LBFGS
+        epsilon: convergence threshold for termination criterion: ||g|| < epsilon * max(1, ||w||))
+        delta: convergence threshold for termination criterion (f' - f) / f < delta
+        """
         if self.loss == NULL:
             self.weight_vector.resize(1 + num_features(), 0.0)
         else:
@@ -53,14 +62,33 @@ cdef class LinearRegression(Model):
         LearnParameters(self.loss[0], l1, 1, memory_buffers,
             epsilon, delta, self.weight_vector)
 
-    def predict(self, RealvaluedDataset test):
-        assert (self.loss != NULL)
-        cdef unsigned i
-        for i in range(test.instances.size()):
+    def _predict_dataset(self, RealvaluedDataset test):
+        for i in range(len(test)):
             yield self.loss.Predict(test.instances[0][i].x, self.weight_vector[0])
 
+    def _predict_features(self, fmap):
+        cdef vector[pair[int, float]]* test_vector = feature_vector(fmap)
+        cdef double y = self.loss.Predict(test_vector[0], self.weight_vector[0])
+        del test_vector
+        return y
+
+    def predict(self, test):
+        """
+        predict(RealvaluedDataset) -> iterator of predictions
+        predict(mapping) -> predicted value
+        """
+        assert (self.loss != NULL)
+        if isinstance(test, RealvaluedDataset):
+            return self._predict_dataset(test)
+        elif isinstance(test, collections.Mapping):
+            return self._predict_features(test)
+        else:
+            raise TypeError('test has to be a RealvaluedDataset or a mapping')
+
     def evaluate(self, RealvaluedDataset data):
-        """ Returns RMSE of the predictions for the dataset"""
+        """
+        evaluate(RealvaluedDataset) -> RMSE of the predictions for the dataset
+        """
         assert (self.loss != NULL)
         return self.loss.Evaluate(data.instances[0], self.weight_vector[0])
 

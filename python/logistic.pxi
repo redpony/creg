@@ -1,3 +1,5 @@
+import collections
+
 cdef class CategoricalDataset(Dataset):
 
     cdef readonly list labels
@@ -5,14 +7,14 @@ cdef class CategoricalDataset(Dataset):
 
     def __init__(self, data):
         """
-        Dataset with categorical response
+        CategoricalDataset(data) -> dataset with categorical response
         data: iterator of (dict, *) pairs
         """
         self.labels = []
         self.label_map = {}
         super(CategoricalDataset, self).__init__(data, True)
 
-    def get_label(self, response):
+    def _get_label(self, response):
         if response in self.label_map:
             label = self.label_map[response]
         else:
@@ -20,7 +22,7 @@ cdef class CategoricalDataset(Dataset):
             self.labels.append(response)
         return label
 
-    def get_response(self, label):
+    def _get_response(self, label):
         return self.labels[label]
 
 
@@ -52,6 +54,15 @@ cdef class LogisticRegression(Model):
     def fit(self, CategoricalDataset data,
             double l1=0, double l2=0, unsigned memory_buffers=40,
             double epsilon=1e-4, double delta=0):
+        """
+        fit(CategoricalDataset data, l1=0, l2=0, memory_buffers=40, epsilon=1e-4, delta=0)
+        Fit an logistic regression model on the training data.
+        l1: L1 regularization strength
+        l2: L2 regularization strength
+        memory_buffers: number of memory buffers for LBFGS
+        epsilon: convergence threshold for termination criterion: ||g|| < epsilon * max(1, ||w||))
+        delta: convergence threshold for termination criterion (f' - f) / f < delta
+        """
         self.data = data
         cdef unsigned K = len(data.labels)
         if self.loss == NULL:
@@ -62,24 +73,66 @@ cdef class LogisticRegression(Model):
         LearnParameters(self.loss[0], l1, K-1, memory_buffers,
             epsilon, delta, self.weight_vector)
 
-    def predict(self, CategoricalDataset test):
-        assert (self.loss != NULL)
+    def _predict_dataset(self, CategoricalDataset test):
         cdef unsigned y
-        cdef unsigned i
-        for i in range(test.instances.size()):
-            y = self.loss.Predict(test.instances[0][i].x, self.weight_vector[0]).first
+        for i in range(len(test)):
+            y = self.loss.Predict(test.instances[0][i].x, self.weight_vector[0], NULL).first
             yield self.data.labels[y]
 
-    def full_predict(self, CategoricalDataset test):
+    def _predict_features(self, fmap):
+        cdef vector[pair[int, float]]* test_vector = feature_vector(fmap)
+        cdef unsigned y = self.loss.Predict(test_vector[0], self.weight_vector[0], NULL).first
+        del test_vector
+        return self.data.labels[y]
+
+    def predict(self, test):
+        """
+        predict(CategoricalDataset) -> iterator of predictions
+        predict(mapping) -> predicted label
+        """
         assert (self.loss != NULL)
-        cdef pair[unsigned, double] pred
-        cdef unsigned i
-        for i in range(test.instances.size()):
-            pred = self.loss.Predict(test.instances[0][i].x, self.weight_vector[0])
-            yield self.data.labels[pred.first], pred.second
+        if isinstance(test, CategoricalDataset):
+            return self._predict_dataset(test)
+        elif isinstance(test, collections.Mapping):
+            return self._predict_features(test)
+        else:
+            raise TypeError('test has to be a CategoricalDataset or a mapping')
+
+    def _predict_proba_dataset(self, CategoricalDataset test):
+        cdef unsigned y
+        cdef MulticlassPrediction* pred = new MulticlassPrediction()
+        for i in range(len(test)):
+            self.loss.Predict(test.instances[0][i].x, self.weight_vector[0], pred)
+            yield pred.posterior
+        del pred
+
+    def _predict_proba_features(self, fmap):
+        cdef vector[pair[int, float]]* test_vector = feature_vector(fmap)
+        cdef MulticlassPrediction* pred = new MulticlassPrediction()
+        self.loss.Predict(test_vector[0], self.weight_vector[0], pred)
+        predictions = list(pred.posterior)
+        del test_vector, pred
+        return predictions
+
+    def predict_proba(self, test):
+        """
+        predict_proba(CategoricalDataset) -> iterator of posterior probabilities
+        predict_proba(mapping) -> posterior label probabilities
+        """
+        assert (self.loss != NULL)
+        if isinstance(test, CategoricalDataset):
+            return self._predict_proba_dataset(test)
+        elif isinstance(test, collections.Mapping):
+            return self._predict_proba_features(test)
+        else:
+            raise TypeError('test has to be a CategoricalDataset or a mapping')
 
     def evaluate(self, CategoricalDataset data, double thresh_p=0):
-        """ Returns accuracy of the predictions for the dataset"""
+        """
+        evaluate(CategoricalDataset, thresh_p=0) -> accuracy of the predictions for the dataset
+        thresh_p: only compute the accuracy on instances where the predicted class posterior
+                  is greater than this value
+        """
         assert (self.loss != NULL)
         return self.loss.Evaluate(data.instances[0], self.weight_vector[0], thresh_p)
 

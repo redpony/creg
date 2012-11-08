@@ -1,5 +1,6 @@
 from libcpp.pair cimport pair
 from libcpp.vector cimport vector
+from libcpp.map cimport map
 from libcpp.string cimport string
 
 cdef extern from "creg/fdict.h" namespace "FD":
@@ -30,6 +31,10 @@ cdef extern from "creg/creg.cc":
         FrozenFeatureMap x
         InstanceValue y
 
+    cdef cppclass MulticlassPrediction:
+        unsigned y_hat
+        vector[double] posterior
+
     cdef cppclass BaseLoss:
         BaseLoss()
 
@@ -40,7 +45,10 @@ cdef extern from "creg/creg.cc":
           unsigned numfeats,
           double l2) # double t = 0.0
 
-        pair[unsigned, double] Predict(FrozenFeatureMap& fx, vector[double]& w)
+        pair[unsigned, double] Predict(FrozenFeatureMap& fx, vector[double]& w, 
+                MulticlassPrediction* pred)
+        pair[unsigned, double] Predict(vector[pair[int, float]]& fx, vector[double]& w,
+                MulticlassPrediction* pred)
         double Evaluate(vector[TrainingInstance]& test, vector[double]& w, double thresh_p)
 
     cdef cppclass OrdinalLogLoss(BaseLoss):
@@ -51,6 +59,7 @@ cdef extern from "creg/creg.cc":
           double l2)
 
         unsigned Predict(FrozenFeatureMap& fx, vector[double]& w)
+        unsigned Predict(vector[pair[int, float]]& fx, vector[double]& w)
         double Evaluate(vector[TrainingInstance]& test, vector[double]& w)
 
     cdef cppclass UnivariateSquaredLoss(BaseLoss):
@@ -60,6 +69,7 @@ cdef extern from "creg/creg.cc":
           double l2)
 
         double Predict(FrozenFeatureMap& fx, vector[double]& w)
+        double Predict(vector[pair[int, float]]& fx, vector[double]& w)
         double Evaluate(vector[TrainingInstance]& test, vector[double]& w)
 
     double LearnParameters(BaseLoss loss,
@@ -75,19 +85,3 @@ cdef extern from *:
 
 cdef inline unsigned num_features():
     return NumFeats()
-
-"""
-cdef inline SparseVector[float]* fvector(features):
-    cdef pair[int, float] *fpair, *front, *back
-    cdef vector[pair[int, float]]* featmap = new vector[pair[int, float]]()
-    for fname, fval in features.iteritems():
-        fname = fname.encode('utf8')
-        fpair = new pair[int, float](Convert(<char*> fname), fval)
-        featmap.push_back(fpair[0])
-        del fpair
-    front = &featmap.front()
-    back = &featmap.back()+1
-    cdef SparseVector[float]* result = new SparseVector[float](front, back)
-    del featmap
-    return result
-"""
