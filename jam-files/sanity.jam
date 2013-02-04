@@ -97,19 +97,19 @@ rule boost-lib ( name macro ) {
   #Link multi-threaded programs against the -mt version if available.  Old 
   #versions of boost do not have -mt tagged versions of all libraries.   Sadly,
   #boost.jam does not handle this correctly.  
-  if [ test_flags $(L-boost-search)" -lboost_"$(name)"-mt" ] {
+#  if [ test_flags $(L-boost-search)" -lboost_"$(name)"-mt" ] {
 #    if [ test_flags $(L-boost-search)" -lboost_"$(name) ] {
 #      lib inner_boost_$(name) : : <threading>single $(boost-search) <name>boost_$(name) ;
 #      lib inner_boost_$(name) : : <threading>multi $(boost-search) <name>boost_$(name)-mt ;
 #    } else {
-      if ! <threading>multi in $(requirements) {
-        requirements += <threading>multi ;
-      }
-      lib inner_boost_$(name) : : <threading>multi $(boost-search) <name>boost_$(name)-mt ;
+#      if ! <threading>multi in $(requirements) {
+#        requirements += <threading>multi ;
+#      }
+#      lib inner_boost_$(name) : : <threading>multi $(boost-search) <name>boost_$(name)-mt ;
 #    }
-  } else {
+#  } else {
     lib inner_boost_$(name) : : $(boost-search) <name>boost_$(name) ;
-  }
+#  }
 
   alias boost_$(name) : inner_boost_$(name) : $(boost-auto-shared) : : <link>shared:<define>BOOST_$(macro) $(boost-include) ;
 }
