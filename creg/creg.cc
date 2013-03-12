@@ -106,13 +106,12 @@ void ReadWeightsMulticlass(const string& fname,
     lm[labels[i]] = i;
   const unsigned K = labels.size();
   vector<double>& weights = *pw;
-// 5	***CATEGORICAL***	Iris-versicolor	Iris-setosa	Iris-virginica
+// 3	***CATEGORICAL***	Iris-versicolor	Iris-setosa	Iris-virginica
   ReadFile rf(fname);
   istream& in = *rf.stream();
-  unsigned p;
+  unsigned rk;
   string cat;
-  in >> p >> cat;
-  unsigned rk = p - 2;
+  in >> rk >> cat;
   if (cat != "***CATEGORICAL***") {
     cerr << "Unexpected weights type: " << cat << endl;
     abort();
@@ -136,10 +135,15 @@ void ReadWeightsMulticlass(const string& fname,
     if (f != "***BIAS***") { cerr << "Bad format!\n"; abort(); }
     weights[lm[l]] = w;
   }
+  unsigned p = FD::NumFeats();
   while(in >> l >> f >> w) {
     unsigned y = lm[l];
     unsigned fid = FD::Convert(f);
-    weights[(K - 1) + y * p + fid] = w;
+    if (fid >= p) {
+      cerr << "Skipping feature " << f << endl;
+    } else {
+      weights[(K - 1) + y * p + fid] = w;
+    }
   }
 }
 
@@ -784,7 +788,7 @@ int main(int argc, char** argv) {
     }
 
     if (out) {
-      *out << p << "\t***CATEGORICAL***";
+      *out << K << "\t***CATEGORICAL***";
       for (unsigned y = 0; y < K; ++y)
         *out << '\t' << labels[y];
       *out << endl;
