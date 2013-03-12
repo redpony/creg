@@ -1,4 +1,5 @@
 #include <cstdlib>
+#include <sstream>
 #include <iostream>
 #include <vector>
 #include <tr1/unordered_map>
@@ -173,7 +174,25 @@ void ReadLabeledInstances(const string& ffeats,
       if (lc % 1000 == 0) { cerr << '.'; flag = true; }
       if (lc % 40000 == 0) { cerr << " [" << lc << "]\n"; flag = false; }
       if (line.size() == 0) continue;
-      if (line[0] == '#') continue;
+      if (line[0] == '#') {
+        if (line.size() > 1 && line[1] == '#') {
+          if (lc != 1) {
+            cerr << "[WARNING] Line " << lc << " appears to be label declaration ... ignoring\n";
+          } else {
+            istringstream is(line);
+            string label;
+            is >> label;
+            while(is >> label) {
+              unordered_map<string, unsigned>::iterator it = label2id.find(label);
+              if (it == label2id.end()) {
+                it = label2id.insert(make_pair(label, labels->size())).first;
+                labels->push_back(label);
+              }
+            }
+          }
+        }
+        continue;
+      }
       unsigned p = 0;
       while (p < line.size() && line[p] != ' ' && line[p] != '\t') { ++p; }
       unsigned& ind = rh.id2ind[line.substr(0, p)];
