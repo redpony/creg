@@ -24,8 +24,8 @@ void InitCommandLine(int argc, char** argv, po::variables_map* conf) {
   opts.add_options()
         ("linear,n", "Linear regression (default is multiclass logistic regression)")
         ("ordinal,o", "Ordinal regression (proportional odds)")
-        ("training_features,x", po::value<string>(), "File containing training instance features")
-        ("training_responses,y", po::value<string>(), "File containing training instance responses")
+        ("training_features,x", po::value<string>(), "File containing training instance features (if unspecified, do prediction only)")
+        ("training_responses,y", po::value<string>(), "File containing training instance responses (if unspecified, do prediction only)")
         ("tx", po::value<string>(), "File containing test instance features (optional)")
         ("ty", po::value<string>(), "File containing test instance responses (optional)")
         ("z", po::value<string>(), "Write learned weights to this file (optional)")
@@ -46,7 +46,8 @@ void InitCommandLine(int argc, char** argv, po::variables_map* conf) {
   po::options_description dcmdline_options;
   dcmdline_options.add(opts);
   po::store(parse_command_line(argc, argv, dcmdline_options), *conf);
-  if (conf->count("help") || !conf->count("training_features") || !conf->count("training_responses")) {
+  bool prediction_only = !conf->count("training_features") && !conf->count("training_responses");
+  if (conf->count("help") || (prediction_only && (!conf->count("weights") || !conf->count("tx")))) {
     cerr << dcmdline_options << endl;
     exit(1);
   }
@@ -94,6 +95,51 @@ void ReaderCB(const string& id,
     TrainingInstance x_no_y;
     x_no_y.x = rh.fms->AddFeatureMap(begin,end);
     rh.xy_pairs->push_back(x_no_y);
+  }
+}
+
+void ReadWeightsMulticlass(const string& fname,
+                           const vector<string>& labels,
+                           vector<double>* pw) {
+  map<string, unsigned> lm;
+  for (unsigned i = 0; i < labels.size(); ++i)
+    lm[labels[i]] = i;
+  const unsigned K = labels.size();
+  vector<double>& weights = *pw;
+// 5	***CATEGORICAL***	Iris-versicolor	Iris-setosa	Iris-virginica
+  ReadFile rf(fname);
+  istream& in = *rf.stream();
+  unsigned p;
+  string cat;
+  in >> p >> cat;
+  unsigned rk = p - 2;
+  if (cat != "***CATEGORICAL***") {
+    cerr << "Unexpected weights type: " << cat << endl;
+    abort();
+  }
+  if (K != rk) {
+    cerr << "Mismatched label set: " << K << " != " << rk << endl;
+    abort();
+  }
+  for (unsigned i = 0; i < rk; ++i) {
+    string f;
+    in >> f;
+    if (labels[i] != f) { cerr << "Bad label order: " << labels[i] << " != " << f << endl; abort(); }
+  }
+// Iris-versicolor	***BIAS***	17.619343957411
+// Iris-setosa	***BIAS***	28.1532494500727
+//  Iris-versicolor	petal-length	-2.69876613900064
+  string l,f;
+  double w;
+  for (unsigned i = 1; i < K; ++i) {
+    in >> l >> f >> w;
+    if (f != "***BIAS***") { cerr << "Bad format!\n"; abort(); }
+    weights[lm[l]] = w;
+  }
+  while(in >> l >> f >> w) {
+    unsigned y = lm[l];
+    unsigned fid = FD::Convert(f);
+    weights[(K - 1) + y * p + fid] = w;
   }
 }
 
@@ -574,12 +620,19 @@ int main(int argc, char** argv) {
   } else if (conf.count("ordinal")) {
     resptype = kORDINAL;
   }
-  const string xfile = conf["training_features"].as<string>();
-  const string yfile = conf["training_responses"].as<string>();
+  bool do_training = conf.count("training_features") && conf.count("training_responses");
+  if (!do_training && (conf.count("training_features") && conf.count("training_responses"))) {
+    cerr << "You must specify both training_features (-x) and training_responses (-y)!\n";
+    return 1;
+  }
   vector<string> labels; // only populated for non-continuous models
   vector<TrainingInstance> training, test;
   FeatureMapStorage fms;
-  ReadLabeledInstances(xfile, yfile, resptype, &fms, &training, &labels);
+  if (do_training) {
+    string xfile = conf["training_features"].as<string>();
+    string yfile = conf["training_responses"].as<string>();
+    ReadLabeledInstances(xfile, yfile, resptype, &fms, &training, &labels);
+  }
 
   if (conf.count("test_features")) {
     std::cerr << "THE OPTION --test_features IS DEPRECATED USE --tx AND --ty INSTEAD\n";
@@ -599,11 +652,10 @@ int main(int argc, char** argv) {
   }
   assert(test_ids.size() == test.size());
 
+  string weights_file;
   if (conf.count("weights")) {
-    cerr << "Initial weights are not implemented, please implement." << endl;
-    // TODO read weights for categorical and continuous predictions
-    // can't use normal cdec weight framework
-    abort();
+    weights_file = conf["weights"].as<string>();
+    cerr << "               WEIGHTS FILE: " << weights_file << endl;
   }
 
   cerr << "         Number of features: " << FD::NumFeats() << endl;
@@ -625,6 +677,10 @@ int main(int argc, char** argv) {
   if (conf.count("linear")) {  // linear regression
     vector<double> weights(1 + p, 0.0);
     cerr << "       Number of parameters: " << weights.size() << endl;
+    if (weights_file.size() > 0) {
+      cerr << "Please implement.\n";
+      abort();
+    }
     UnivariateSquaredLoss loss(training, p, l2);
     LearnParameters(loss, l1, 1, memory_buffers, epsilon, delta, &weights);
 
@@ -655,6 +711,10 @@ int main(int argc, char** argv) {
     vector<double> weights(p + km1, 0.0);
     for (unsigned k = 0; k < km1; k++)
       weights[k] = log(k+1) - log(K);
+    if (weights_file.size() > 0) {
+      cerr << "Please implement.\n";
+      abort();
+    }
     OrdinalLogLoss loss(training, K, p, l2);
     LearnParameters(loss, l1, km1, memory_buffers, epsilon, delta, &weights);
 
@@ -696,8 +756,12 @@ int main(int argc, char** argv) {
     cerr << "           Number of labels: " << labels.size() << endl;
     const unsigned K = labels.size();
     const unsigned km1 = K - 1;
+    if (weights_file.size() > 0)
+      ReadWeightsMulticlass(weights_file, labels, &weights);
     MulticlassLogLoss loss(training, K, p, l2, temp);
-    LearnParameters(loss, l1, km1, memory_buffers, epsilon, delta, &weights);
+    if (do_training) {
+      LearnParameters(loss, l1, km1, memory_buffers, epsilon, delta, &weights);
+    }
 
     if (test.size()) {
       vector<MulticlassPrediction> predictions;
