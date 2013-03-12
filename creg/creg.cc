@@ -28,6 +28,7 @@ void InitCommandLine(int argc, char** argv, po::variables_map* conf) {
         ("training_responses,y", po::value<string>(), "File containing training instance responses")
         ("tx", po::value<string>(), "File containing test instance features (optional)")
         ("ty", po::value<string>(), "File containing test instance responses (optional)")
+        ("z", po::value<string>(), "Write learned weights to this file (optional)")
         ("write_test_predictions,p", "Write model prediction for each test instance")
         ("write_test_distribution,D", "Write posterior distribution of outputs for each test instance (categorical models only)")
         ("dont_write_weights,W", "Supress writing learned weights")
@@ -609,7 +610,15 @@ int main(int argc, char** argv) {
   cerr << "Number of training examples: " << training.size() << endl;
   const unsigned p = FD::NumFeats();
   cout.precision(15);
-  bool dont_write_weights = conf.count("dont_write_weights");
+  ostream* out = &cout;
+  if (conf.count("dont_write_weights")) out = NULL;
+  if (conf.count("z") == 1) {
+    if (!out) {
+      cerr << "You specified an output weights file (--z) but also used -W.\n";
+      return 1;
+    }
+    out = new ofstream(conf["z"].as<string>().c_str());
+  }
   bool write_dist = conf.count("write_test_distribution");
   bool write_pps = conf.count("write_test_predictions");
 
@@ -631,13 +640,13 @@ int main(int argc, char** argv) {
       }
     }
 
-    if (!dont_write_weights) {
-      cout << p << "\t***CONTINUOUS***" << endl;
-      cout << "***BIAS***\t" << weights[0] << endl;
+    if (out) {
+      *out << p << "\t***CONTINUOUS***" << endl;
+      *out << "***BIAS***\t" << weights[0] << endl;
       for (unsigned f = 0; f < p; ++f) {
         const double w = weights[1 + f];
         if (w)
-          cout << FD::Convert(f) << "\t" << w << endl;
+          *out << FD::Convert(f) << "\t" << w << endl;
       }
     }
   } else if (conf.count("ordinal")) {
@@ -669,16 +678,16 @@ int main(int argc, char** argv) {
       }
     }
 
-    if (!dont_write_weights) {
-      cout << p << "\t***ORDINAL***";
+    if (out) {
+      *out << p << "\t***ORDINAL***";
       for (unsigned y = 0; y < K; ++y)
-        cout << '\t' << labels[y];
-      cout << endl;
+        *out << '\t' << labels[y];
+      *out << endl;
       for (unsigned y = 0; y < km1; ++y)
-        cout << "y>=" << labels[y+1] << "\t" << weights[y] << endl;
+        *out << "y>=" << labels[y+1] << "\t" << weights[y] << endl;
       for (unsigned f = 0; f < p; ++f) {
         const double w = weights[km1 + f];
-        if (w) cout << FD::Convert(f) << "\t" << w << endl;
+        if (w) *out << FD::Convert(f) << "\t" << w << endl;
       }
     }
   } else {                     // logistic regression
@@ -710,22 +719,24 @@ int main(int argc, char** argv) {
       }
     }
 
-    if (!dont_write_weights) {
-      cout << p << "\t***CATEGORICAL***";
+    if (out) {
+      *out << p << "\t***CATEGORICAL***";
       for (unsigned y = 0; y < K; ++y)
-        cout << '\t' << labels[y];
-      cout << endl;
+        *out << '\t' << labels[y];
+      *out << endl;
       for (unsigned y = 0; y < km1; ++y)
-        cout << labels[y] << "\t***BIAS***\t" << weights[y] << endl;
+        *out << labels[y] << "\t***BIAS***\t" << weights[y] << endl;
       for (unsigned y = 0; y < km1; ++y) {
         for (unsigned f = 0; f < p; ++f) {
           const double w = weights[km1 + y * p + f];
           if (w)
-            cout << labels[y] << "\t" << FD::Convert(f) << "\t" << w << endl;
+            *out << labels[y] << "\t" << FD::Convert(f) << "\t" << w << endl;
         }
       }
     }
   }
+  if (out && out != &cout)
+    delete out;
 
   return 0;
 }
