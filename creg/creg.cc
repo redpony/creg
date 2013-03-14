@@ -141,7 +141,10 @@ void ReadWeightsMulticlass(const string& fname,
     weights[lm[l]] = w;
   }
   unsigned p = FD::NumFeats();
-  while(in >> l >> f >> w) {
+  string fl;
+  while(getline(in, fl)) {
+    istringstream is(fl);
+    is >> l >> f >> w;
     unsigned y = lm[l];
     unsigned fid = FD::Convert(f);
     if (fid >= p) {
