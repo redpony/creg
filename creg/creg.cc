@@ -6,6 +6,8 @@
 #include <limits>
 #include <cmath>
 
+#include <signal.h>
+
 #include <boost/program_options.hpp>
 #include <boost/program_options/variables_map.hpp>
 
@@ -19,6 +21,8 @@
 using namespace std;
 using namespace std::tr1;
 namespace po = boost::program_options;
+
+volatile bool* requested_stop = NULL;
 
 void InitCommandLine(int argc, char** argv, po::variables_map* conf) {
   po::options_description opts("Configuration options");
@@ -605,8 +609,18 @@ double LearnParameters(LossFunction& loss,
                        const double delta,
                        vector<double>* px) {
   LBFGS<LossFunction> lbfgs(px, loss, memory_buffers, l1, l1_start, epsilon, delta);
+  requested_stop = lbfgs.GetCancelFlag();
   lbfgs.MinimizeFunction();
   return 0;
+}
+
+void signal_callback_handler(int signum) {
+  if (!requested_stop || *requested_stop) {
+    cerr << "\nReceived SIGINT again, quitting.\n";
+    exit(1);
+  }
+  cerr << "\nReceived SIGINT terminating optimization early.\n";
+  *requested_stop = true;
 }
 
 int main(int argc, char** argv) {
@@ -696,6 +710,9 @@ int main(int argc, char** argv) {
   }
   bool write_dist = conf.count("write_test_distribution");
   bool write_pps = conf.count("write_test_predictions");
+
+  // set up signal handler to catch SIGINT
+  signal(SIGINT, signal_callback_handler);
 
   if (conf.count("linear")) {  // linear regression
     vector<double> weights(1 + p, 0.0);

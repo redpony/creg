@@ -66,6 +66,11 @@ class LBFGS {
     return ret;
   }
 
+  // set this memory to true to request cancelation
+  volatile bool* GetCancelFlag() {
+    return &is_canceled;
+  }
+
  private:
   void Init(size_t m, double l1_c, unsigned l1_start, double epsilon, double delta) {
     lbfgs_parameter_init(&param);
@@ -81,6 +86,7 @@ class LBFGS {
       param.orthantwise_start = l1_start;
     }
     silence = false;
+    is_canceled = false;
   }
 
   static lbfgsfloatval_t _evaluate(
@@ -143,8 +149,9 @@ class LBFGS {
       std::cerr << "Iteration " << k << ':' << "\tfx = " << fx << "\t"
                 << "  xnorm = " << xnorm << ", gnorm = " << gnorm << ", step = " << step << std::endl;
     }
-    return 0;
+    return is_canceled ? 1 : 0;
   }
+
   std::vector<lbfgsfloatval_t>* p_x;
   const bool owned;
   std::vector<lbfgsfloatval_t>& m_x;
@@ -152,6 +159,7 @@ class LBFGS {
   lbfgs_parameter_t param;
   bool silence;
   int ec;
+  volatile bool is_canceled;
 
   const char* ErrorName(int lbfgs_ret){
     switch(lbfgs_ret) {
