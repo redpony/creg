@@ -73,13 +73,13 @@ struct ReaderHelper {
                         bool h,
                         vector<string>* iids) : xy_pairs(xyp), lc(), flag(), has_labels(h), ids(iids), merge() {}
   unordered_map<string, unsigned> id2ind;
-  vector<FeatureMapStorage> ts;
   FeatureMapStorage* fms;
   vector<TrainingInstance>* xy_pairs;
   int lc;
   bool flag;
   bool has_labels;
   vector<string>* ids;
+  vector<bool> merged;
   bool merge;
 };
 
@@ -91,7 +91,7 @@ void ReaderCB(const string& id,
   ++rh.lc;
   if (rh.lc % 1000  == 0) { cerr << '.'; rh.flag = true; }
   if (rh.lc % 50000 == 0) { cerr << " [" << rh.lc << "]\n"; rh.flag = false; }
-  if (rh.ids) rh.ids->push_back(id);
+  if (rh.ids && !rh.merge) rh.ids->push_back(id);
   if (rh.has_labels) {
     const unordered_map<string, unsigned>::iterator it = rh.id2ind.find(id);
     if (it == rh.id2ind.end()) {
@@ -99,6 +99,7 @@ void ReaderCB(const string& id,
       abort();
     } else {
       if (rh.merge) {
+        rh.merged[it->second - 1] = true;
         const FrozenFeatureMap& prev = (*rh.xy_pairs)[it->second - 1].x;
         (*rh.xy_pairs)[it->second - 1].x = rh.fms->AddFeatureMap(begin,end,prev);
       } else {
@@ -108,11 +109,21 @@ void ReaderCB(const string& id,
   } else {
     TrainingInstance x_no_y;
     if (rh.merge) {
-      cerr << "Merging of unlabeled instances not supported.\n";
-      abort();
+      if (!rh.ids) {
+        cerr << "Missing IDs\n";
+        abort();
+      }
+      unsigned& ind = rh.id2ind[id];
+      rh.merged[ind - 1] = true;
+      const FrozenFeatureMap& prev = (*rh.xy_pairs)[ind - 1].x;
+      (*rh.xy_pairs)[ind - 1].x = rh.fms->AddFeatureMap(begin,end,prev);
+    } else {
+      x_no_y.x = rh.fms->AddFeatureMap(begin,end);
+      unsigned& ind = rh.id2ind[id];
+      assert(ind == 0);
+      rh.xy_pairs->push_back(x_no_y);
+      ind = rh.xy_pairs->size();
     }
-    x_no_y.x = rh.fms->AddFeatureMap(begin,end);
-    rh.xy_pairs->push_back(x_no_y);
   }
 }
 
@@ -271,11 +282,20 @@ void ReadLabeledInstances(const vector<string>& ffeats,
       tfms = new FeatureMapStorage;
       rh.fms = tfms;
     }
-    if (pfms) rh.merge = true;
+    if (pfms) {
+      rh.merge = true;
+      rh.merged.clear();
+      rh.merged.resize(rh.xy_pairs->size(), false);
+    }
     const string& ffeat = ffeats[i];
     cerr << "Reading features from " << ffeat << " ..." << endl;
     ReadFile ff(ffeat);
     JSONFeatureMapLexer::ReadRules(ff.stream(), ReaderCB, &rh);
+    if (pfms) {
+      for (unsigned j = 0; j < rh.xy_pairs->size(); ++j)
+        if (!rh.merged[j])
+          (*rh.xy_pairs)[j].x = rh.fms->AddFeatureMap(NULL, NULL, (*rh.xy_pairs)[j].x);
+    }
     if (rh.flag) cerr << endl;
   }
   delete pfms;
