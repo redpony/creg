@@ -155,11 +155,19 @@ void ReadWeightsMulticlass(const string& fname,
   }
   unsigned p = FD::NumFeats();
   string fl;
+  getline(in, fl); // extra newline after >> reading
   while(getline(in, fl)) {
-    istringstream is(fl);
-    is >> l >> f >> w;
-    unsigned y = lm[l];
-    unsigned fid = FD::Convert(f);
+    size_t first_field_end = fl.find('\t');
+    size_t second_field_end = fl.rfind('\t');
+    if (first_field_end == string::npos || second_field_end == string::npos || first_field_end == second_field_end) {
+      cerr << "Badly formatted weight: " << fl << endl;
+      abort();
+    }
+    l.assign(fl,0,first_field_end);
+    f.assign(fl,first_field_end+1,second_field_end - first_field_end - 1);
+    unsigned y = lm[fl.substr(0, first_field_end)];
+    unsigned fid = FD::Convert(fl.substr(first_field_end+1,second_field_end - first_field_end - 1));
+    double w = strtod(&fl[second_field_end+1], NULL);
     if (fid >= p) {
       cerr << "Skipping feature " << f << endl;
     } else {
