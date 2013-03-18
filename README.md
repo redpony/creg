@@ -20,6 +20,8 @@ Logistic regression example (training only):
 
 	./dist/bin/creg -x test_data/iris.trainfeat -y test_data/iris.trainresp --l1 1.0 > weights.txt
 
+  * To load initial values for weights from a file (warm start), use `-w FILENAME`.
+
 Logistic regression example (training and testing):
 
 	./dist/bin/creg -x test_data/iris.trainfeat -y test_data/iris.trainresp --l1 1.0 \
@@ -27,9 +29,11 @@ Logistic regression example (training and testing):
 
 Logistic regression example (training and prediction):
 
-	./dist/bin/creg -x test_data/iris.trainfeat -y test_data/iris.trainresp --l1 1.0 --tx test_data/iris.testfeat -W -D
+	./dist/bin/creg -x test_data/iris.trainfeat -y test_data/iris.trainresp --l1 1.0 --tx test_data/iris.testfeat
 
-*The `-W` option in preceeding example supresses writing the learned weights and the `-D` option causes the full posterior distribution over predicted labels to be written.*
+  * By default, the test set predictions and learned weights are written to stdout.
+  * If `-D` is specified, the full posterior distribution over predicted labels will be written.
+  * To write weights to a file instead of stdout, specify `--z FILENAME`. To suppress outputting of weights altogether, supply the `-W` flag.
 
 Linear regression example (training and testing):
 

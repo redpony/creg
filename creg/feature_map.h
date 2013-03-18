@@ -17,6 +17,7 @@ class FrozenFeatureMap {
   typedef const std::pair<int,float>* const_iterator;
   const_iterator begin() const;
   const_iterator end() const;
+  size_t size() const { return end() - begin(); }
  private:
   const FeatureMapStorage* fms_;
   unsigned pos_;
@@ -49,6 +50,28 @@ class FeatureMapStorage {
       ++begin;
     }
     PushOffset(cur + msize);
+    return FrozenFeatureMap(this, olen_ - 1);
+  }
+  FrozenFeatureMap AddFeatureMap(const std::pair<int,float>* begin,
+                                 const std::pair<int,float>* end,
+                                 const FrozenFeatureMap& prev) {
+    const size_t msize = end - begin;
+    const size_t nsize = prev.size();
+    const size_t tsize = msize + nsize;
+    size_t cur = dlen_;
+    dlen_ += tsize;
+    if (dlen_ > dcapacity_)
+      EnsureCapacity(dlen_);
+    for (size_t i = 0; i < msize; ++i) {
+      data_[cur + i] = *begin;
+      ++begin;
+    }
+    begin = prev.begin();
+    for (size_t i = 0; i < nsize; ++i) {
+      data_[cur + i + msize] = *begin;
+      ++begin;
+    }
+    PushOffset(cur + tsize);
     return FrozenFeatureMap(this, olen_ - 1);
   }
  private:
