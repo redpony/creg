@@ -29,9 +29,9 @@ void InitCommandLine(int argc, char** argv, po::variables_map* conf) {
   opts.add_options()
         ("linear,n", "Linear regression (default is multiclass logistic regression)")
         ("ordinal,o", "Ordinal regression (proportional odds)")
-        ("training_features,x", po::value<string>(), "File containing training instance features (if unspecified, do prediction only)")
+        ("training_features,x", po::value<vector<string> >(), "Files containing training instance features")
         ("training_responses,y", po::value<string>(), "File containing training instance responses (if unspecified, do prediction only)")
-        ("tx", po::value<string>(), "File containing test instance features (optional)")
+        ("tx", po::value<vector<string> >(), "File containing test instance features")
         ("ty", po::value<string>(), "File containing test instance responses (optional)")
         ("z", po::value<string>(), "Write learned weights to this file (optional)")
         ("write_test_predictions,p", "Write model prediction for each test instance")
@@ -51,7 +51,7 @@ void InitCommandLine(int argc, char** argv, po::variables_map* conf) {
   po::options_description dcmdline_options;
   dcmdline_options.add(opts);
   po::store(parse_command_line(argc, argv, dcmdline_options), *conf);
-  bool prediction_only = !conf->count("training_features") && !conf->count("training_responses");
+  bool prediction_only = !conf->count("training_responses");
   if (conf->count("help") || (prediction_only && (!conf->count("weights") || !conf->count("tx")))) {
     cerr << dcmdline_options << endl;
     exit(1);
@@ -69,14 +69,18 @@ struct TrainingInstance {
 };
 
 struct ReaderHelper {
-  explicit ReaderHelper(FeatureMapStorage* pfms, vector<TrainingInstance>* xyp, bool h, vector<string>* iids) : fms(pfms), xy_pairs(xyp), lc(), flag(), has_labels(h), ids(iids) {}
+  explicit ReaderHelper(vector<TrainingInstance>* xyp,
+                        bool h,
+                        vector<string>* iids) : xy_pairs(xyp), lc(), flag(), has_labels(h), ids(iids), merge() {}
   unordered_map<string, unsigned> id2ind;
+  vector<FeatureMapStorage> ts;
   FeatureMapStorage* fms;
   vector<TrainingInstance>* xy_pairs;
   int lc;
   bool flag;
   bool has_labels;
   vector<string>* ids;
+  bool merge;
 };
 
 void ReaderCB(const string& id,
@@ -94,10 +98,19 @@ void ReaderCB(const string& id,
       cerr << "\nUnlabeled example in line " << rh.lc << " (key=" << id << ')' << endl;
       abort();
     } else {
-      (*rh.xy_pairs)[it->second - 1].x = rh.fms->AddFeatureMap(begin,end);
+      if (rh.merge) {
+        const FrozenFeatureMap& prev = (*rh.xy_pairs)[it->second - 1].x;
+        (*rh.xy_pairs)[it->second - 1].x = rh.fms->AddFeatureMap(begin,end,prev);
+      } else {
+        (*rh.xy_pairs)[it->second - 1].x = rh.fms->AddFeatureMap(begin,end);
+      }
     }
   } else {
     TrainingInstance x_no_y;
+    if (rh.merge) {
+      cerr << "Merging of unlabeled instances not supported.\n";
+      abort();
+    }
     x_no_y.x = rh.fms->AddFeatureMap(begin,end);
     rh.xy_pairs->push_back(x_no_y);
   }
@@ -155,7 +168,7 @@ void ReadWeightsMulticlass(const string& fname,
   }
 }
 
-void ReadLabeledInstances(const string& ffeats,
+void ReadLabeledInstances(const vector<string>& ffeats,
                           const string& fresp,
                           const RegressionType resptype,
                           FeatureMapStorage* fms,
@@ -165,10 +178,11 @@ void ReadLabeledInstances(const string& ffeats,
   bool flag = false;
   xy_pairs->clear();
   int lc = 0;
-  ReaderHelper rh(fms, xy_pairs, fresp.size() > 0, instance_ids);
+  ReaderHelper rh(xy_pairs, fresp.size() > 0, instance_ids);
+  rh.merge = false;
   unordered_map<string, unsigned> label2id;
   if (fresp.size() == 0) {
-    cerr << "No gold standard responses provided for " << ffeats << endl;
+    cerr << "No gold standard responses provided to learn from!" << endl;
   } else {
     cerr << "Reading responses from " << fresp << " ..." << endl;
     ReadFile fr(fresp);
@@ -245,10 +259,26 @@ void ReadLabeledInstances(const string& ffeats,
       cerr << endl;
     }
   }
-  cerr << "Reading features from " << ffeats << " ..." << endl;
-  ReadFile ff(ffeats);
-  JSONFeatureMapLexer::ReadRules(ff.stream(), ReaderCB, &rh);
-  if (rh.flag) cerr << endl;
+  FeatureMapStorage* pfms = NULL;
+  FeatureMapStorage* tfms = NULL;
+  for (unsigned i = 0; i < ffeats.size(); ++i) {
+    if (i == ffeats.size() - 1) {
+      pfms = tfms;
+      rh.fms = fms;
+    } else {
+      delete pfms;
+      pfms = tfms;
+      tfms = new FeatureMapStorage;
+      rh.fms = tfms;
+    }
+    if (pfms) rh.merge = true;
+    const string& ffeat = ffeats[i];
+    cerr << "Reading features from " << ffeat << " ..." << endl;
+    ReadFile ff(ffeat);
+    JSONFeatureMapLexer::ReadRules(ff.stream(), ReaderCB, &rh);
+    if (rh.flag) cerr << endl;
+  }
+  delete pfms;
 }
 
 // helper base class (not polymorphic- just a container and some helper functions) for loss functions
@@ -669,14 +699,14 @@ int main(int argc, char** argv) {
   vector<TrainingInstance> training, test;
   FeatureMapStorage fms;
   if (do_training) {
-    string xfile = conf["training_features"].as<string>();
+    vector<string> xfile = conf["training_features"].as<vector<string> >();
     string yfile = conf["training_responses"].as<string>();
     ReadLabeledInstances(xfile, yfile, resptype, &fms, &training, &labels);
   }
 
   if (conf.count("test_features")) {
     std::cerr << "THE OPTION --test_features IS DEPRECATED USE --tx AND --ty INSTEAD\n";
-    const string txfile = conf["test_features"].as<string>();
+    const vector<string> txfile = conf["test_features"].as<vector<string> >();
     const string tyfile = conf["test_responses"].as<string>();
     ReadLabeledInstances(txfile, tyfile, resptype, &fms, &test, &labels);
   }
@@ -684,7 +714,7 @@ int main(int argc, char** argv) {
   bool test_labels = false;
   vector<string> test_ids;
   if (conf.count("tx")) {
-    const string txfile = conf["tx"].as<string>();
+    const vector<string> txfile = conf["tx"].as<vector<string> >();
     string tyfile;
     if (conf.count("ty")) tyfile = conf["ty"].as<string>();
     test_labels = tyfile.size();
