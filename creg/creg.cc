@@ -174,13 +174,11 @@ void ReadWeightsMulticlass(const string& fname,
       cerr << "Badly formatted weight: " << fl << endl;
       abort();
     }
-    l.assign(fl,0,first_field_end);
-    f.assign(fl,first_field_end+1,second_field_end - first_field_end - 1);
     unsigned y = lm[fl.substr(0, first_field_end)];
     unsigned fid = FD::Convert(fl.substr(first_field_end+1,second_field_end - first_field_end - 1));
     double w = strtod(&fl[second_field_end+1], NULL);
     if (fid >= p) {
-      cerr << "Skipping feature " << f << endl;
+      cerr << "Skipping feature " << FD::Convert(fid) << endl;
     } else {
       weights[(K - 1) + y * p + fid] = w;
     }
