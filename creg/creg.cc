@@ -169,8 +169,11 @@ void ReadWeightsMulticlass(const string& fname,
   }
   unsigned p = FD::NumFeats();
   string fl;
+  unsigned total = 0;
+  unsigned skipped = 0;
   getline(in, fl); // extra newline after >> reading
   while(getline(in, fl)) {
+    ++total;
     size_t first_field_end = fl.find('\t');
     size_t second_field_end = fl.rfind('\t');
     if (first_field_end == string::npos || second_field_end == string::npos || first_field_end == second_field_end) {
@@ -181,10 +184,14 @@ void ReadWeightsMulticlass(const string& fname,
     unsigned fid = FD::Convert(fl.substr(first_field_end+1,second_field_end - first_field_end - 1));
     double w = strtod(&fl[second_field_end+1], NULL);
     if (fid >= p) {
-      cerr << "Skipping feature " << FD::Convert(fid) << endl;
+      // cerr << "Skipping feature " << FD::Convert(fid) << endl;
+      ++skipped;
     } else {
       weights[(K - 1) + y * p + fid] = w;
     }
+  }
+  if (skipped) {
+    cerr << "Skipped " << skipped << " unneeded features of " << total << " total features\n";
   }
 }
 
