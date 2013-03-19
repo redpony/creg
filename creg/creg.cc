@@ -168,6 +168,7 @@ void ReadWeightsMulticlass(const string& fname,
     weights[lm[l]] = w;
   }
   unsigned p = FD::NumFeats();
+  FD::Freeze();
   string fl;
   unsigned total = 0;
   unsigned skipped = 0;
@@ -183,7 +184,7 @@ void ReadWeightsMulticlass(const string& fname,
     unsigned y = lm[fl.substr(0, first_field_end)];
     unsigned fid = FD::Convert(fl.substr(first_field_end+1,second_field_end - first_field_end - 1));
     double w = strtod(&fl[second_field_end+1], NULL);
-    if (fid >= p) {
+    if (!fid) {
       // cerr << "Skipping feature " << FD::Convert(fid) << endl;
       ++skipped;
     } else {
