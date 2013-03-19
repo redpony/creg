@@ -128,37 +128,40 @@ void ReaderCB(const string& id,
 }
 
 void ReadWeightsMulticlass(const string& fname,
-                           const vector<string>& labels,
+                           vector<string>* plabels,
                            vector<double>* pw) {
   map<string, unsigned> lm;
-  for (unsigned i = 0; i < labels.size(); ++i)
-    lm[labels[i]] = i;
-  const unsigned K = labels.size();
+  vector<string>& labels = *plabels;
   vector<double>& weights = *pw;
 // 3	***CATEGORICAL***	Iris-versicolor	Iris-setosa	Iris-virginica
   ReadFile rf(fname);
   istream& in = *rf.stream();
-  unsigned rk;
+  unsigned rk; // read K
   string cat;
   in >> rk >> cat;
   if (cat != "***CATEGORICAL***") {
     cerr << "Unexpected weights type: " << cat << endl;
     abort();
   }
-  if (K != rk) {
-    cerr << "Mismatched label set: " << K << " != " << rk << endl;
-    abort();
-  }
+  bool has_labels = labels.size() > 0;
   for (unsigned i = 0; i < rk; ++i) {
     string f;
     in >> f;
-    if (labels[i] != f) { cerr << "Bad label order: " << labels[i] << " != " << f << endl; abort(); }
+    if (has_labels) {
+      if (labels[i] != f) { cerr << "Bad label order: " << labels[i] << " != " << f << endl; abort(); }
+    } else {
+      labels.push_back(f);
+    }
   }
+  for (unsigned i = 0; i < labels.size(); ++i)
+    lm[labels[i]] = i;
+  const unsigned K = labels.size();
 // Iris-versicolor	***BIAS***	17.619343957411
 // Iris-setosa	***BIAS***	28.1532494500727
 //  Iris-versicolor	petal-length	-2.69876613900064
   string l,f;
   double w;
+  weights.resize((1 + FD::NumFeats()) * (labels.size() - 1), 0.0);
   for (unsigned i = 1; i < K; ++i) {
     in >> l >> f >> w;
     if (f != "***BIAS***") { cerr << "Bad format!\n"; abort(); }
@@ -753,6 +756,15 @@ int main(int argc, char** argv) {
     weights_file = conf["weights"].as<string>();
     cerr << "               WEIGHTS FILE: " << weights_file << endl;
   }
+  vector<double> weights;
+  if (weights_file.size() > 0) {
+    if (resptype == kLOGISTIC)
+      ReadWeightsMulticlass(weights_file, &labels, &weights);
+    else {
+      cerr << "Don't know how to read weights file--please implement\n";
+      abort();
+    }
+  }
 
   cerr << "         Number of features: " << FD::NumFeats() << endl;
   cerr << "Number of training examples: " << training.size() << endl;
@@ -774,7 +786,7 @@ int main(int argc, char** argv) {
   signal(SIGINT, signal_callback_handler);
 
   if (conf.count("linear")) {  // linear regression
-    vector<double> weights(1 + p, 0.0);
+    weights.resize(1 + p, 0.0);
     cerr << "       Number of parameters: " << weights.size() << endl;
     if (weights_file.size() > 0) {
       cerr << "Please implement.\n";
@@ -807,7 +819,7 @@ int main(int argc, char** argv) {
   } else if (conf.count("ordinal")) {
     const unsigned K = labels.size();
     const unsigned km1 = K - 1;
-    vector<double> weights(p + km1, 0.0);
+    weights.resize(p + km1, 0.0);
     for (unsigned k = 0; k < km1; k++)
       weights[k] = log(k+1) - log(K);
     if (weights_file.size() > 0) {
@@ -850,13 +862,11 @@ int main(int argc, char** argv) {
       }
     }
   } else {                     // logistic regression
-    vector<double> weights((1 + FD::NumFeats()) * (labels.size() - 1), 0.0);
+    weights.resize((1 + FD::NumFeats()) * (labels.size() - 1), 0.0);
     cerr << "       Number of parameters: " << weights.size() << endl;
     cerr << "           Number of labels: " << labels.size() << endl;
     const unsigned K = labels.size();
     const unsigned km1 = K - 1;
-    if (weights_file.size() > 0)
-      ReadWeightsMulticlass(weights_file, labels, &weights);
     MulticlassLogLoss loss(training, K, p, l2, temp);
     if (do_training) {
       LearnParameters(loss, l1, km1, memory_buffers, epsilon, delta, &weights);
