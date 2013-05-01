@@ -196,6 +196,57 @@ void ReadWeightsMulticlass(const string& fname,
   }
 }
 
+void ReadWeightsLinear(const string& fname,
+                       vector<double>* pw) {
+  map<string, unsigned> lm;
+  vector<double>& weights = *pw;
+  // 6	***CONTINUOUS***
+
+  ReadFile rf(fname);
+  istream& in = *rf.stream();
+  unsigned rk; // read K
+  string cat;
+  in >> rk >> cat;
+  if (cat != "***CONTINUOUS***") {
+    cerr << "Unexpected weights type: " << cat << endl;
+    abort();
+  }
+  weights.resize(1 + FD::NumFeats(), 0.0);
+  string f;
+  double w;
+  in >> f >> w;
+  if (f != "***BIAS***") { cerr << "Bad format!\n"; abort(); }
+  weights[0] = w;
+  // ***BIAS***	44.1115567293068
+  // horsepower	-0.0366264048792159
+  // acceleration	-0.0140216308150685
+
+  FD::Freeze();
+  string fl;
+  unsigned total = 0;
+  unsigned skipped = 0;
+  getline(in, fl); // extra newline after >> reading
+  while(getline(in, fl)) {
+    ++total;
+    size_t first_field_end = fl.find('\t');
+    if (first_field_end == string::npos) {
+      cerr << "Badly formatted weight: " << fl << endl;
+      abort();
+    }
+    unsigned fid = FD::Convert(fl.substr(0, first_field_end));
+    double w = strtod(&fl[first_field_end+1], NULL);
+    if (!fid) {
+      // cerr << "Skipping feature " << FD::Convert(fid) << endl;
+      ++skipped;
+    } else {
+      weights[fid + 1] = w;
+    }
+  }
+  if (skipped) {
+    cerr << "Skipped " << skipped << " unneeded features of " << total << " total features\n";
+  }
+}
+
 void ReadLabeledInstances(const vector<string>& ffeats,
                           const string& fresp,
                           const RegressionType resptype,
@@ -768,6 +819,8 @@ int main(int argc, char** argv) {
   if (weights_file.size() > 0) {
     if (resptype == kLOGISTIC)
       ReadWeightsMulticlass(weights_file, &labels, &weights);
+    else if (resptype == kLINEAR)
+      ReadWeightsLinear(weights_file, &weights);
     else {
       cerr << "Don't know how to read weights file--please implement\n";
       abort();
@@ -796,10 +849,6 @@ int main(int argc, char** argv) {
   if (conf.count("linear")) {  // linear regression
     weights.resize(1 + p, 0.0);
     cerr << "       Number of parameters: " << weights.size() << endl;
-    if (weights_file.size() > 0) {
-      cerr << "Please implement.\n";
-      abort();
-    }
     UnivariateSquaredLoss loss(training, p, l2);
     LearnParameters(loss, l1, 1, memory_buffers, epsilon, delta, &weights);
 
