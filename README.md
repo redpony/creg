@@ -7,11 +7,13 @@ Building
 --------
 To build `creg`, you will need:
 
+* Download the [2014-02-18 version of the source code](http://demo.clab.cs.cmu.edu/cdec/creg-2014-02-18.tar.gz) (or install from github).
+* In the root source directory, run the `./configure` command and then type `make`.
+
+Software requirements:
+
 * A C++ recent compiler ([g++](http://gcc.gnu.org/) or [clang](http://clang.llvm.org/))
 * The [Boost C++ libraries](http://www.boost.org) installed somewhere
-
-Run the `./configure` command and then type `make` in the root source directory.
-
 
 Examples
 --------
