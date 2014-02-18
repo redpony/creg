@@ -43,7 +43,7 @@ Linear regression example (training and testing):
 Ordinal regression example (training and testing)
 
 	./creg/creg -o -x test_data/shuttle.trainfeat -y test_data/shuttle.trainresp \
-	    -t test_data/shuttle.testfeat -s test_data/shuttle.testresp > weights.txt
+	    --tx test_data/shuttle.testfeat --ty test_data/shuttle.testresp > weights.txt
 
 Note: for ordinal regression, labels have to be consecutive and start from 0 (e.g., 0/1/2 for 3 labels).
 
