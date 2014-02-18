@@ -12,7 +12,7 @@ To build `creg`, you will need:
 
 Software requirements:
 
-* A C++ recent compiler ([g++](http://gcc.gnu.org/) or [clang](http://clang.llvm.org/))
+* A relatively recent C++ compiler ([g++](http://gcc.gnu.org/) or [clang](http://clang.llvm.org/))
 * The [Boost C++ libraries](http://www.boost.org) installed somewhere
 
 Examples
