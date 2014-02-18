@@ -1,0 +1,30 @@
+from distutils.core import setup
+from distutils.extension import Extension
+import re
+
+creg_sources = ('fdict.cc', 'dict.cc', 'gzstream.cc', 'filelib.cc',
+                'json_feature_map_lexer.cc')
+creg_sources = ['creg/'+fn for fn in creg_sources]
+
+INC = ['creg/', '.', 'python/']
+LIB = ['liblbfgs/']
+LIBS = re.findall('-l([^\s]+)', '@LIBS@')
+CPPFLAGS = re.findall('-[^\s]+', '@CPPFLAGS@ @CXXFLAGS@')
+LDFLAGS = re.findall('-[^\s]+', '@LDFLAGS@')
+
+ext_modules = [
+    Extension(name='_creg',
+        sources=['python/_creg.cpp'] + creg_sources,
+        language='c++', 
+        include_dirs=INC,
+        library_dirs=LIB,
+        libraries=['lbfgs'] + LIBS,
+        extra_compile_args=CPPFLAGS,
+        extra_link_args=LDFLAGS)
+]
+
+setup(
+    name='creg',
+    ext_modules=ext_modules,
+    packages=['creg']
+)

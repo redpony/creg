@@ -1,19 +1,26 @@
 #ifndef DICT_H_
 #define DICT_H_
 
-
 #include <cassert>
 #include <cstring>
 #include <string>
 #include <vector>
-#include <tr1/unordered_map>
+
+#if HAVE_NEW_CXX
+# include <unordered_map>
+# include <unordered_set>
+#else
+# include <tr1/unordered_map>
+# include <tr1/unordered_set>
+namespace std { using std::tr1::unordered_map; using std::tr1::unordered_set; }
+#endif
 
 #include <boost/functional/hash.hpp>
 #include "wordid.h"
 
 class Dict {
  typedef
- std::tr1::unordered_map<std::string, WordID, boost::hash<std::string> > Map;
+ std::unordered_map<std::string, WordID, boost::hash<std::string> > Map;
  public:
   Dict() : b0_("<bad0>") {
     words_.reserve(1000);

@@ -2,9 +2,17 @@
 #include <sstream>
 #include <iostream>
 #include <vector>
-#include <tr1/unordered_map>
 #include <limits>
 #include <cmath>
+
+#if HAVE_NEW_CXX
+# include <unordered_map>
+# include <unordered_set>
+#else
+# include <tr1/unordered_map>
+# include <tr1/unordered_set>
+namespace std { using std::tr1::unordered_map; using std::tr1::unordered_set; }
+#endif
 
 #include <signal.h>
 
@@ -19,7 +27,6 @@
 #include "liblbfgs/lbfgs++.h"
 
 using namespace std;
-using namespace std::tr1;
 namespace po = boost::program_options;
 
 volatile bool* requested_stop = NULL;
@@ -735,7 +742,7 @@ double LearnParameters(LossFunction& loss,
   return 0;
 }
 
-void signal_callback_handler(int signum) {
+void signal_callback_handler(int /* signum */) {
   if (!requested_stop || *requested_stop) {
     cerr << "\nReceived SIGINT again, quitting.\n";
     exit(1);
