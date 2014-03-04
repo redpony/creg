@@ -8,7 +8,12 @@ Building
 To build `creg`, you will need:
 
 * Download the [2014-02-18 version of the source code](http://demo.clab.cs.cmu.edu/cdec/creg-2014-02-18.tar.gz) (or install from github).
-* In the root source directory, run the `./configure` command and then type `make`.
+* If you are working with the code from github
+  * Run `autoreconf -fvi`
+* If you are working with a source tarball
+  * Run `tar xzf creg-2014-02-18.tar.gz`
+  * Change into the directory `cd creg-2014-02-18`
+* Last, run the `./configure` command and then type `make`.
 
 Software requirements:
 
